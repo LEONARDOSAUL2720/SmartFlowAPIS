@@ -1,0 +1,6 @@
+// En tu build.gradle (Module: app)
+dependencies {
+    // ... tus otras dependencias
+    implementation 'com.android.volley:volley:1.2.1'
+    // ... resto de dependencias
+}
