@@ -8,7 +8,6 @@ require('dotenv').config();
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
-const dataRoutes = require('./routes/data');
 
 const app = express();
 
@@ -62,7 +61,7 @@ app.get('/', (req, res) => {
 // Rutas de la API
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/data', dataRoutes);
+
 
 // Middleware de manejo de errores
 app.use((err, req, res, next) => {
