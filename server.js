@@ -7,7 +7,10 @@ require('dotenv').config();
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
-const userRoutes = require('./routes/users');
+
+// Importar rutas específicas por rol
+const auditorRoutes = require('./routes/auditor/auditorRoutes');
+const adminRoutes = require('./routes/admin/adminRoutes');
 
 const app = express();
 
@@ -60,7 +63,13 @@ app.get('/', (req, res) => {
 
 // Rutas de la API
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
+
+// Rutas específicas por rol
+app.use('/api/auditor', auditorRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Servir archivos estáticos (imágenes)
+app.use('/uploads', express.static('uploads'));
 
 
 // Middleware de manejo de errores
@@ -85,7 +94,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`🌐 API disponible en: http://localhost:${PORT}`);
-  console.log(`📱 Para dispositivos móviles: http://192.168.1.8:${PORT}`);
+  // console.log(`📱 Para dispositivos móviles: http://192.168.1.13:${PORT}`); // Para desarrollo local
+  console.log(`🌍 Producción en Render: https://smartflow-mwmm.onrender.com`);
 });
 
 module.exports = app;

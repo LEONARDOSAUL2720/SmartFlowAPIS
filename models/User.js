@@ -17,6 +17,11 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Por favor ingresa un email válido']
   },
+  imagen_user: {
+    type: String,
+    default: null,
+    trim: true
+  },
   password_user: {
     type: String,
     required: [true, 'La contraseña es requerida'],
@@ -63,6 +68,17 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 userSchema.methods.toPublicJSON = function() {
   const user = this.toObject();
   delete user.password_user;
+  
+  // Convertir ruta relativa de imagen a URL completa
+  if (user.imagen_user) {
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+    console.log('🔍 DEBUG - BASE_URL utilizada:', baseUrl); // Log para debugging
+    user.imagen_url = `${baseUrl}${user.imagen_user}`;
+    console.log('🔍 DEBUG - imagen_url generada:', user.imagen_url); // Log para debugging
+  } else {
+    user.imagen_url = null;
+  }
+  
   return user;
 };
 
