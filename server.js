@@ -61,6 +61,37 @@ app.get('/', (req, res) => {
   });
 });
 
+// Ruta para verificar archivos (solo para debugging)
+app.get('/debug/files', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  
+  try {
+    const uploadsPath = path.join(__dirname, 'uploads', 'users');
+    
+    // Verificar si existe el directorio
+    if (!fs.existsSync(uploadsPath)) {
+      return res.json({
+        error: 'Directorio uploads/users no existe',
+        path: uploadsPath
+      });
+    }
+    
+    // Listar archivos
+    const files = fs.readdirSync(uploadsPath);
+    res.json({
+      directory: uploadsPath,
+      files: files,
+      totalFiles: files.length
+    });
+  } catch (error) {
+    res.json({
+      error: 'Error listando archivos',
+      message: error.message
+    });
+  }
+});
+
 // Rutas de la API
 app.use('/api/auth', authRoutes);
 

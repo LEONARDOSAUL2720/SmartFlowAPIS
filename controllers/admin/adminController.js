@@ -28,15 +28,15 @@ const createUser = async (req, res) => {
     console.log('🔍 DEBUG - Datos recibidos:');
     console.log('Body:', req.body);
     console.log('File:', req.file);
-    console.log('Files:', req.files);
+    console.log('ImageBase64 length:', req.imageBase64 ? req.imageBase64.length : 'No hay Base64');
 
-    // Procesar imagen si se subió
-    let imagen_user = null;
-    if (req.file) {
-      imagen_user = `/uploads/users/${req.file.filename}`;
-      console.log('✅ Imagen encontrada:', imagen_user);
+    // Procesar imagen Base64
+    let imagen_base64 = null;
+    if (req.imageBase64) {
+      imagen_base64 = req.imageBase64;
+      console.log('✅ Imagen Base64 encontrada');
     } else {
-      console.log('❌ No se encontró archivo en req.file');
+      console.log('❌ No se encontró imagen Base64');
     }
 
     // Crear nuevo usuario
@@ -45,7 +45,7 @@ const createUser = async (req, res) => {
       correo_user,
       password_user,
       rol_user: rol_user || 'Empleado',
-      imagen_user,
+      imagen_base64, // Guardar Base64 en lugar de ruta
       estado_user: true
     });
 

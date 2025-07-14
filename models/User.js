@@ -22,6 +22,11 @@ const userSchema = new mongoose.Schema({
     default: null,
     trim: true
   },
+  imagen_base64: {
+    type: String,
+    default: null,
+    trim: true
+  },
   password_user: {
     type: String,
     required: [true, 'La contraseña es requerida'],
@@ -69,13 +74,20 @@ userSchema.methods.toPublicJSON = function() {
   const user = this.toObject();
   delete user.password_user;
   
-  // Convertir ruta relativa de imagen a URL completa
-  if (user.imagen_user) {
+  // Si tiene imagen en Base64, usarla directamente
+  if (user.imagen_base64) {
+    user.imagen_url = user.imagen_base64; // Base64 completo
+    console.log('🔍 DEBUG - Usando imagen Base64');
+  }
+  // Si tiene imagen como archivo, construir URL
+  else if (user.imagen_user) {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-    console.log('🔍 DEBUG - BASE_URL utilizada:', baseUrl); // Log para debugging
+    console.log('🔍 DEBUG - BASE_URL utilizada:', baseUrl);
     user.imagen_url = `${baseUrl}${user.imagen_user}`;
-    console.log('🔍 DEBUG - imagen_url generada:', user.imagen_url); // Log para debugging
-  } else {
+    console.log('🔍 DEBUG - imagen_url generada:', user.imagen_url);
+  } 
+  // Sin imagen
+  else {
     user.imagen_url = null;
   }
   
