@@ -1,225 +1,139 @@
 const User = require('../../models/User');
+const OrdenCompra = require('../../models/OrdenCompra');
+const Perfume = require('../../models/Perfume');
+const Proveedor = require('../../models/Proveedor');
 const { validationResult } = require('express-validator');
 
-// Obtener dashboard específico del auditor
-const getAuditorDashboard = async (req, res) => {
+// Buscar orden de compra completa por ID
+const getOrdenCompraCompleta = async (req, res) => {
+  console.log('🔍 Búsqueda de orden de compra iniciada');
+  console.log('📋 ID recibido:', req.params.id);
+  console.log('🔑 Headers recibidos:', req.headers);
+  console.log('👤 Usuario autenticado:', {
+    id: req.user?._id,
+    name: req.user?.name_user,
+    role: req.user?.rol_user
+  });
+  
   try {
-    const auditor = req.user;
+    const { id } = req.params;
     
-    // Estadísticas específicas para auditores
-    const dashboardData = {
-      auditor: {
-        id: auditor._id,
-        nombre: auditor.name_user,
-        correo: auditor.correo_user,
-        rol: auditor.rol_user
-      },
-      estadisticas: {
-        reportes_pendientes: 5, // Esto vendría de tu BD
-        auditorias_completadas: 12,
-        usuarios_auditados: 25,
-        ultimo_reporte: new Date().toISOString()
-      },
-      accesos_rapidos: [
-        { titulo: 'Generar Reporte', icono: 'report', accion: 'generate_report' },
-        { titulo: 'Ver Auditorías', icono: 'audit', accion: 'view_audits' },
-        { titulo: 'Análisis de Datos', icono: 'analytics', accion: 'data_analysis' },
-        { titulo: 'Exportar Datos', icono: 'export', accion: 'export_data' }
-      ]
-    };
-
-    res.json({
-      message: 'Dashboard de auditor obtenido exitosamente',
-      data: dashboardData
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo dashboard de auditor:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      message: 'Error al obtener dashboard'
-    });
-  }
-};
-
-// Obtener lista de reportes de auditoría
-const getAuditReports = async (req, res) => {
-  try {
-    const auditor = req.user;
-    const { page = 1, limit = 10, status = 'all' } = req.query;
-
-    // Aquí conectarías con tu modelo de reportes
-    // Por ahora, datos de ejemplo
-    const reports = [
-      {
-        id: '1',
-        titulo: 'Auditoría de Usuarios - Enero 2025',
-        fecha_creacion: '2025-01-15T10:00:00Z',
-        status: 'completado',
-        tipo: 'usuarios',
-        auditor_id: auditor._id,
-        usuarios_auditados: 15,
-        anomalias_encontradas: 2
-      },
-      {
-        id: '2',
-        titulo: 'Análisis de Actividad - Diciembre 2024',
-        fecha_creacion: '2024-12-20T14:30:00Z',
-        status: 'pendiente',
-        tipo: 'actividad',
-        auditor_id: auditor._id,
-        usuarios_auditados: 8,
-        anomalias_encontradas: 0
-      }
-    ];
-
-    res.json({
-      message: 'Reportes de auditoría obtenidos',
-      data: {
-        reports,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total: reports.length
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo reportes:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      message: 'Error al obtener reportes'
-    });
-  }
-};
-
-// Generar nuevo reporte de auditoría
-const generateAuditReport = async (req, res) => {
-  try {
-    const auditor = req.user;
-    const errors = validationResult(req);
-    
-    if (!errors.isEmpty()) {
+    // Validar que el ID sea un ObjectId válido
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
-        error: 'Datos inválidos',
-        details: errors.array()
+        error: 'ID inválido',
+        message: 'El ID proporcionado no tiene un formato válido'
       });
     }
 
-    const { tipo_reporte, fecha_inicio, fecha_fin, descripcion } = req.body;
+    console.log('🔍 Buscando orden de compra...');
+    console.log('🎯 ID procesado para búsqueda:', id);
+    console.log('📏 Longitud del ID:', id.length);
+    console.log('🔤 Caracteres del ID:', id.split('').map(c => c + ' (' + c.charCodeAt(0) + ')').join(', '));
+    
+    // DEBUG: Mostrar todas las órdenes disponibles
+    const todasLasOrdenes = await OrdenCompra.find({}).limit(5);
+    console.log('📋 Órdenes disponibles en BD (primeras 5):', 
+      todasLasOrdenes.map(orden => ({
+        _id: orden._id.toString(),
+        estatus: orden.estatus
+      }))
+    );
+    
+    // Buscar la orden de compra y hacer populate de perfume y proveedor
+    const ordenCompra = await OrdenCompra.findById(id)
+      .populate('id_perfume')
+      .populate('id_proveedor');
 
-    // Aquí implementarías la lógica para generar el reporte
-    const nuevoReporte = {
-      id: Date.now().toString(),
-      titulo: `Reporte de ${tipo_reporte} - ${new Date().toLocaleDateString()}`,
-      fecha_creacion: new Date().toISOString(),
-      fecha_inicio,
-      fecha_fin,
-      descripcion,
-      status: 'generando',
-      tipo: tipo_reporte,
-      auditor_id: auditor._id,
-      auditor_nombre: auditor.name_user
-    };
+    console.log('📊 Resultado de búsqueda en BD:', ordenCompra ? 'ENCONTRADO' : 'NO ENCONTRADO');
+    
+    if (ordenCompra) {
+      console.log('✅ Datos de la orden encontrada:', {
+        _id: ordenCompra._id,
+        estatus: ordenCompra.estatus,
+        tiene_perfume: !!ordenCompra.id_perfume,
+        tiene_proveedor: !!ordenCompra.id_proveedor
+      });
+    }
 
-    res.status(201).json({
-      message: 'Reporte de auditoría iniciado',
-      data: nuevoReporte
-    });
+    if (!ordenCompra) {
+      console.log('❌ Orden de compra no encontrada');
+      return res.status(404).json({
+        error: 'Orden no encontrada',
+        message: 'No se encontró una orden de compra con el ID proporcionado'
+      });
+    }
 
-  } catch (error) {
-    console.error('Error generando reporte:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      message: 'Error al generar reporte'
-    });
-  }
-};
+    console.log('✅ Orden encontrada:', ordenCompra._id);
+    console.log('🌸 Perfume:', ordenCompra.id_perfume?.name_per || 'No encontrado');
+    console.log('🏢 Proveedor:', ordenCompra.id_proveedor?.nombre_proveedor || 'No encontrado');
 
-// Obtener análisis de datos para auditoría
-const getDataAnalysis = async (req, res) => {
-  try {
-    const { tipo_analisis = 'usuarios', periodo = '30' } = req.query;
+    // Verificar que existan las referencias
+    if (!ordenCompra.id_perfume) {
+      console.log('⚠️ Perfume no encontrado para esta orden');
+    }
+    
+    if (!ordenCompra.id_proveedor) {
+      console.log('⚠️ Proveedor no encontrado para esta orden');
+    }
 
-    // Datos de ejemplo para análisis
-    const analisisData = {
-      tipo: tipo_analisis,
-      periodo_dias: parseInt(periodo),
-      fecha_generacion: new Date().toISOString(),
-      metricas: {
-        total_usuarios: 150,
-        usuarios_activos: 120,
-        usuarios_inactivos: 30,
-        nuevos_registros: 15,
-        actividad_promedio: 85.5
+    // Construir respuesta con toda la información
+    const respuesta = {
+      message: 'Orden de compra encontrada exitosamente',
+      data: {
+        orden_compra: {
+          _id: ordenCompra._id,
+          cantidad: ordenCompra.cantidad,
+          precio_unitario: ordenCompra.precio_unitario,
+          precio_total: ordenCompra.precio_total,
+          fecha_orden: ordenCompra.fecha_orden,
+          estatus: ordenCompra.estatus
+        },
+        perfume: ordenCompra.id_perfume ? {
+          _id: ordenCompra.id_perfume._id,
+          name_per: ordenCompra.id_perfume.name_per,
+          descripcion_per: ordenCompra.id_perfume.descripcion_per,
+          categoria_per: ordenCompra.id_perfume.categoria_per,
+          precio_venta_per: ordenCompra.id_perfume.precio_venta_per,
+          stock_per: ordenCompra.id_perfume.stock_per,
+          stock_minimo_per: ordenCompra.id_perfume.stock_minimo_per,
+          ubicacion_per: ordenCompra.id_perfume.ubicacion_per,
+          fecha_expiracion: ordenCompra.id_perfume.fecha_expiracion,
+          estado: ordenCompra.id_perfume.estado,
+          // imagen_url: ordenCompra.id_perfume.imagen_url // Removido para evitar errores en Android
+        } : null,
+        proveedor: ordenCompra.id_proveedor ? {
+          _id: ordenCompra.id_proveedor._id,
+          nombre_proveedor: ordenCompra.id_proveedor.nombre_proveedor,
+          rfc: ordenCompra.id_proveedor.rfc,
+          contacto: ordenCompra.id_proveedor.contacto,
+          telefono: ordenCompra.id_proveedor.telefono,
+          email: ordenCompra.id_proveedor.email,
+          direccion: ordenCompra.id_proveedor.direccion,
+          fecha_registro: ordenCompra.id_proveedor.fecha_registro,
+          estado: ordenCompra.id_proveedor.estado
+        } : null
       },
-      graficos: {
-        actividad_diaria: [
-          { fecha: '2025-01-01', usuarios_activos: 45 },
-          { fecha: '2025-01-02', usuarios_activos: 52 },
-          { fecha: '2025-01-03', usuarios_activos: 48 }
-        ],
-        distribucion_roles: {
-          'Admin': 5,
-          'Empleado': 130,
-          'Auditor': 15
-        }
+      debug: {
+        timestamp: new Date().toISOString(),
+        auditor: req.user.name_user,
+        id_buscado: id
       }
     };
 
-    res.json({
-      message: 'Análisis de datos generado',
-      data: analisisData
-    });
+    console.log('🎉 Respuesta construida exitosamente');
+    res.json(respuesta);
 
   } catch (error) {
-    console.error('Error en análisis de datos:', error);
+    console.error('❌ Error en búsqueda de orden:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
-      message: 'Error al generar análisis'
-    });
-  }
-};
-
-// Exportar datos de auditoría
-const exportAuditData = async (req, res) => {
-  try {
-    const { formato = 'json', tipo_datos = 'reportes' } = req.query;
-    const auditor = req.user;
-
-    const datosExportacion = {
-      metadata: {
-        exportado_por: auditor.name_user,
-        fecha_exportacion: new Date().toISOString(),
-        formato,
-        tipo_datos
-      },
-      datos: {
-        // Aquí irían los datos reales de tu BD
-        resumen: 'Datos de auditoría exportados exitosamente',
-        total_registros: 100
-      }
-    };
-
-    res.json({
-      message: 'Datos exportados exitosamente',
-      data: datosExportacion
-    });
-
-  } catch (error) {
-    console.error('Error exportando datos:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      message: 'Error al exportar datos'
+      message: 'Error al buscar la orden de compra',
+      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 module.exports = {
-  getAuditorDashboard,
-  getAuditReports,
-  generateAuditReport,
-  getDataAnalysis,
-  exportAuditData
+  getOrdenCompraCompleta
 };

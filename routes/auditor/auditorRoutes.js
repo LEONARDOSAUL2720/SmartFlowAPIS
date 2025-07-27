@@ -1,15 +1,13 @@
 const express = require('express');
-const { body, query } = require('express-validator');
 const { 
-  getAuditorDashboard,
-  getAuditReports,
-  generateAuditReport,
-  getDataAnalysis,
-  exportAuditData
+  getOrdenCompraCompleta
 } = require('../../controllers/auditor/auditorController');
 
 const { authMiddleware } = require('../../middleware/auth');
 const { requireAuditor } = require('../../middleware/roleMiddleware');
+
+// Importar modelos para ruta de debug
+const OrdenCompra = require('../../models/OrdenCompra');
 
 const router = express.Router();
 
@@ -17,60 +15,36 @@ const router = express.Router();
 router.use(authMiddleware);
 router.use(requireAuditor);
 
-// Validaciones para generar reporte
-const generateReportValidation = [
-  body('tipo_reporte')
-    .isIn(['usuarios', 'actividad', 'seguridad', 'rendimiento'])
-    .withMessage('Tipo de reporte inválido'),
-  body('fecha_inicio')
-    .isISO8601()
-    .withMessage('Fecha de inicio inválida'),
-  body('fecha_fin')
-    .isISO8601()
-    .withMessage('Fecha de fin inválida'),
-  body('descripcion')
-    .optional()
-    .isLength({ max: 500 })
-    .withMessage('Descripción muy larga')
-];
+// ====== RUTAS PARA ÓRDENES DE COMPRA ======
 
-// Validaciones para análisis de datos
-const dataAnalysisValidation = [
-  query('tipo_analisis')
-    .optional()
-    .isIn(['usuarios', 'actividad', 'seguridad'])
-    .withMessage('Tipo de análisis inválido'),
-  query('periodo')
-    .optional()
-    .isInt({ min: 1, max: 365 })
-    .withMessage('Período debe ser entre 1 y 365 días')
-];
+// Buscar orden de compra completa (con perfume y proveedor)
+router.get('/orden-compra/:id', getOrdenCompraCompleta);
 
-// Validaciones para exportación
-const exportValidation = [
-  query('formato')
-    .optional()
-    .isIn(['json', 'csv', 'excel'])
-    .withMessage('Formato de exportación inválido'),
-  query('tipo_datos')
-    .optional()
-    .isIn(['reportes', 'usuarios', 'actividad'])
-    .withMessage('Tipo de datos inválido')
-];
-
-// ====== RUTAS DEL AUDITOR ======
-
-// Dashboard principal del auditor
-router.get('/dashboard', getAuditorDashboard);
-
-// Gestión de reportes de auditoría
-router.get('/reports', getAuditReports);
-router.post('/reports/generate', generateReportValidation, generateAuditReport);
-
-// Análisis de datos
-router.get('/analytics', dataAnalysisValidation, getDataAnalysis);
-
-// Exportación de datos
-router.get('/export', exportValidation, exportAuditData);
+// RUTA DEBUG: Listar todas las órdenes de compra disponibles
+router.get('/debug/ordenes', async (req, res) => {
+  try {
+    console.log('🔧 DEBUG: Listando todas las órdenes de compra');
+    const ordenes = await OrdenCompra.find({}).limit(10);
+    
+    console.log('📋 Total de órdenes encontradas:', ordenes.length);
+    
+    res.json({
+      message: 'Lista de órdenes para debug',
+      total: ordenes.length,
+      ordenes: ordenes.map(orden => ({
+        _id: orden._id.toString(),
+        estatus: orden.estatus,
+        fecha_orden: orden.fecha_orden,
+        precio_total: orden.precio_total
+      }))
+    });
+  } catch (error) {
+    console.error('❌ Error en debug de órdenes:', error);
+    res.status(500).json({
+      error: 'Error obteniendo órdenes para debug',
+      message: error.message
+    });
+  }
+});
 
 module.exports = router;
