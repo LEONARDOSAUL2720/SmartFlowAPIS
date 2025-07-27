@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const ordenCompraSchema = new mongoose.Schema({
+  'n.orden_compra': {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true
+  },
   id_perfume: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Perfume',
@@ -46,6 +52,7 @@ ordenCompraSchema.methods.toPublicJSON = function() {
   const orden = this.toObject();
   return {
     _id: orden._id,
+    'n.orden_compra': orden['n.orden_compra'],
     id_perfume: orden.id_perfume,
     id_proveedor: orden.id_proveedor,
     cantidad: orden.cantidad,

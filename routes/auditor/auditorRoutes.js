@@ -17,7 +17,7 @@ router.use(requireAuditor);
 
 // ====== RUTAS PARA ÓRDENES DE COMPRA ======
 
-// Buscar orden de compra completa (con perfume y proveedor)
+// Buscar orden de compra completa por número de orden (con perfume y proveedor)
 router.get('/orden-compra/:id', getOrdenCompraCompleta);
 
 // RUTA DEBUG: Listar todas las órdenes de compra disponibles
@@ -33,6 +33,7 @@ router.get('/debug/ordenes', async (req, res) => {
       total: ordenes.length,
       ordenes: ordenes.map(orden => ({
         _id: orden._id.toString(),
+        'n.orden_compra': orden['n.orden_compra'] || 'SIN NÚMERO',
         estatus: orden.estatus,
         fecha_orden: orden.fecha_orden,
         precio_total: orden.precio_total
