@@ -2,6 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const { register, login, getProfile, updateProfile } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/auth');
+const { uploadUserImage } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
 
@@ -48,8 +49,17 @@ const updateProfileValidation = [
     .withMessage('Rol inválido')
 ];
 
-// Rutas públicas
-router.post('/register', registerValidation, register);
+// Middleware para manejar errores de multer
+const multerErrorHandler = (err, req, res, next) => {
+  if (err) {
+    return res.status(400).json({ error: 'Error al procesar la imagen', message: err.message });
+  }
+  next();
+};
+
+// Ruta de registro: primero multer, luego validación, luego controlador
+router.post('/register', uploadUserImage, multerErrorHandler, registerValidation, register);
+
 router.post('/login', loginValidation, login);
 
 // Rutas protegidas

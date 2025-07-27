@@ -3,8 +3,8 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { validationResult } = require('express-validator');
 
-// Generar token JWT
 const generateToken = (userId) => {
+  console.log('[generateToken] Generando token para usuario:', userId);
   return jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: '7d'
   });
@@ -12,10 +12,14 @@ const generateToken = (userId) => {
 
 // Registro de usuario
 const register = async (req, res) => {
+  console.log('🔵 [register] Solicitud de registro recibida:', req.body);
+  console.log('🔵 [register] req.body:', req.body);
+  console.log('🔵 [register] req.file:', req.file);
+
   try {
-    // Validar datos de entrada
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.warn('⚠️ [register] Datos inválidos:', errors.array());
       return res.status(400).json({
         error: 'Datos inválidos',
         details: errors.array()
@@ -24,33 +28,37 @@ const register = async (req, res) => {
 
     const { name_user, correo_user, password_user, rol_user } = req.body;
 
-    // Verificar si el usuario ya existe usando Mongoose
-    const existingUser = await User.findOne({
-      correo_user: correo_user
-    });
+    // Asignar ruta de imagen si existe archivo subido
+    let imagen_user = null;
+    if (req.file) {
+      imagen_user = `/uploads/users/${req.file.filename}`;
+      console.log('🟡 [register] Imagen cargada con ruta:', imagen_user);
+    }
 
+    console.log('🟢 [register] Datos recibidos:', { name_user, correo_user, rol_user });
+
+    const existingUser = await User.findOne({ correo_user });
     if (existingUser) {
+      console.warn('⚠️ [register] El usuario ya existe:', correo_user);
       return res.status(400).json({
         error: 'Usuario ya existe',
         message: 'El email ya está en uso'
       });
     }
 
-    // Crear nuevo usuario usando el modelo de Mongoose
     const user = new User({
-      name_user: name_user,
-      correo_user: correo_user,
-      password_user: password_user, // Se hasheará automáticamente por el pre-save hook
+      name_user,
+      correo_user,
+      password_user,
       rol_user: rol_user || 'Empleado',
-      estado_user: true
-      // fecha_creacion se creará automáticamente
+      estado_user: true,
+      imagen_user
     });
 
-    // Guardar usuario usando Mongoose (evitando validación estricta)
     try {
       const savedUser = await user.save({ validateBeforeSave: false });
-      
-      // Generar token
+      console.log('✅ [register] Usuario registrado:', savedUser);
+
       const token = generateToken(savedUser._id);
 
       res.status(201).json({
@@ -58,11 +66,10 @@ const register = async (req, res) => {
         user: savedUser.toPublicJSON(),
         token
       });
-      
+
     } catch (mongoError) {
-      console.error('Error específico de MongoDB:', mongoError);
-      
-      // Si es un error de validación de MongoDB, dar más detalles
+      console.error('❌ [register] Error al guardar usuario en MongoDB:', mongoError);
+
       if (mongoError.code === 121) {
         return res.status(400).json({
           error: 'Error de validación de base de datos',
@@ -70,12 +77,12 @@ const register = async (req, res) => {
           details: mongoError.errInfo || 'Revisa los tipos de datos y campos requeridos'
         });
       }
-      
-      throw mongoError; // Re-lanzar otros errores
+
+      throw mongoError;
     }
 
   } catch (error) {
-    console.error('Error en registro:', error);
+    console.error('❌ [register] Error general en registro:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: 'Error al registrar usuario'
@@ -85,9 +92,12 @@ const register = async (req, res) => {
 
 // Login de usuario
 const login = async (req, res) => {
+  console.log('🔵 [login] Solicitud de login recibida:', req.body);
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.warn('⚠️ [login] Datos inválidos:', errors.array());
       return res.status(400).json({
         error: 'Datos inválidos',
         details: errors.array()
@@ -95,37 +105,36 @@ const login = async (req, res) => {
     }
 
     const { correo_user, password_user } = req.body;
+    console.log('🟢 [login] Credenciales recibidas:', { correo_user });
 
-    // Buscar usuario usando Mongoose
     const user = await User.findOne({ correo_user });
-    
     if (!user) {
+      console.warn('⚠️ [login] Usuario no encontrado:', correo_user);
       return res.status(400).json({
         error: 'Credenciales inválidas',
         message: 'Email o contraseña incorrectos'
       });
     }
 
-    // Verificar contraseña usando el método del modelo
     const isMatch = await user.comparePassword(password_user);
-    
     if (!isMatch) {
+      console.warn('⚠️ [login] Contraseña incorrecta para:', correo_user);
       return res.status(400).json({
         error: 'Credenciales inválidas',
         message: 'Email o contraseña incorrectos'
       });
     }
 
-    // Verificar si la cuenta está activa
     if (!user.estado_user) {
+      console.warn('⚠️ [login] Cuenta desactivada:', correo_user);
       return res.status(400).json({
         error: 'Cuenta desactivada',
         message: 'Tu cuenta ha sido desactivada'
       });
     }
 
-    // Generar token
     const token = generateToken(user._id);
+    console.log('✅ [login] Login exitoso para:', correo_user);
 
     res.json({
       message: 'Login exitoso',
@@ -134,7 +143,7 @@ const login = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error en login:', error);
+    console.error('❌ [login] Error general en login:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: 'Error al iniciar sesión'
@@ -145,11 +154,12 @@ const login = async (req, res) => {
 // Obtener perfil del usuario
 const getProfile = async (req, res) => {
   try {
+    console.log('📄 [getProfile] Usuario autenticado:', req.user._id);
     res.json({
       user: req.user.toPublicJSON()
     });
   } catch (error) {
-    console.error('Error obteniendo perfil:', error);
+    console.error('❌ [getProfile] Error obteniendo perfil:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: 'Error al obtener perfil'
@@ -159,9 +169,12 @@ const getProfile = async (req, res) => {
 
 // Actualizar perfil
 const updateProfile = async (req, res) => {
+  console.log('📝 [updateProfile] Solicitud de actualización:', req.body);
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.warn('⚠️ [updateProfile] Datos inválidos:', errors.array());
       return res.status(400).json({
         error: 'Datos inválidos',
         details: errors.array()
@@ -177,11 +190,15 @@ const updateProfile = async (req, res) => {
       }
     });
 
+    console.log('🔄 [updateProfile] Campos permitidos a actualizar:', updates);
+
     const user = await User.findByIdAndUpdate(
       req.user._id,
       updates,
       { new: true, runValidators: true }
     );
+
+    console.log('✅ [updateProfile] Perfil actualizado:', user);
 
     res.json({
       message: 'Perfil actualizado exitosamente',
@@ -189,7 +206,7 @@ const updateProfile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error actualizando perfil:', error);
+    console.error('❌ [updateProfile] Error actualizando perfil:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: 'Error al actualizar perfil'
