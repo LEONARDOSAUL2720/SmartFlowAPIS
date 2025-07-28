@@ -12,7 +12,18 @@ const authRoutes = require('./routes/auth');
 const auditorRoutes = require('./routes/auditor/auditorRoutes');
 const adminRoutes = require('./routes/admin/adminRoutes');
 
+// Importar modelos para registrarlos
+const User = require('./models/User');
+const OrdenCompra = require('./models/OrdenCompra');
+const Perfume = require('./models/Perfume');
+const Entrada = require('./models/Entrada');
+const Proveedor = require('./models/Proveedor');
+const Almacen = require('./models/Almacen'); // AGREGAR modelo Almacen
+
 const app = express();
+
+// Configurar trust proxy para Render
+app.set('trust proxy', 1);
 
 // Configuración de seguridad
 app.use(helmet());
