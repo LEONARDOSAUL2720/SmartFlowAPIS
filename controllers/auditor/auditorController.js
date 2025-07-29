@@ -37,7 +37,7 @@ const getOrdenCompraCompleta = async (req, res) => {
       todasLasOrdenes.map(orden => {
         return {
           _id: orden._id.toString(),
-          numero_orden: orden.n_orden_compra || 'SIN NÚMERO', // CORREGIDO
+          numero_orden: orden.n_orden_compra || 'SIN NÚMERO',
           estado: orden.estado,
           // DEBUG: Mostrar todos los campos para ver qué hay
           todos_los_campos: Object.keys(orden.toObject())
@@ -46,10 +46,10 @@ const getOrdenCompraCompleta = async (req, res) => {
     );
     
     // Buscar la orden de compra por número de orden y hacer populate
-    // CORREGIDO: El campo es n_orden_compra (sin punto)
     let ordenCompra = await OrdenCompra.findOne({ n_orden_compra: numeroOrden })
       .populate('id_perfume')
-      .populate('proveedor');  // CORREGIDO: 'proveedor' en lugar de 'id_proveedor'
+      .populate('proveedor')
+      .populate('usuario_solicitante', 'name_user correo_user rol_user');
     
     // Si no encuentra, intentar con otras variaciones por compatibilidad
     if (!ordenCompra) {
@@ -58,13 +58,15 @@ const getOrdenCompraCompleta = async (req, res) => {
       // Intentar con punto (por si acaso)
       ordenCompra = await OrdenCompra.findOne({ 'n.orden_compra': numeroOrden })
         .populate('id_perfume')
-        .populate('proveedor');  // CORREGIDO
+        .populate('proveedor')
+        .populate('usuario_solicitante', 'name_user correo_user rol_user');
         
       if (!ordenCompra) {
         // Intentar con 'numero_orden'
         ordenCompra = await OrdenCompra.findOne({ 'numero_orden': numeroOrden })
           .populate('id_perfume')
-          .populate('proveedor');  // CORREGIDO
+          .populate('proveedor')
+          .populate('usuario_solicitante', 'name_user correo_user rol_user');
       }
     }
 
@@ -74,10 +76,11 @@ const getOrdenCompraCompleta = async (req, res) => {
       const ordenObj = ordenCompra.toObject();
       console.log('✅ Datos de la orden encontrada:', {
         _id: ordenCompra._id,
-        numero_orden: ordenCompra.n_orden_compra || 'NO DEFINIDO', // CORREGIDO
+        numero_orden: ordenCompra.n_orden_compra || 'NO DEFINIDO',
         estado: ordenCompra.estado,
         tiene_perfume: !!ordenCompra.id_perfume,
-        tiene_proveedor: !!ordenCompra.id_proveedor,
+        tiene_proveedor: !!ordenCompra.proveedor,
+        tiene_usuario_solicitante: !!ordenCompra.usuario_solicitante,
         // DEBUG: Mostrar todos los campos
         todos_los_campos: Object.keys(ordenObj)
       });
@@ -92,30 +95,35 @@ const getOrdenCompraCompleta = async (req, res) => {
     }
 
     console.log('✅ Orden encontrada:', ordenCompra._id);
-    console.log('🔢 Número de orden:', ordenCompra.n_orden_compra || 'NO DEFINIDO'); // CORREGIDO
+    console.log('🔢 Número de orden:', ordenCompra.n_orden_compra || 'NO DEFINIDO');
     console.log('🌸 Perfume:', ordenCompra.id_perfume?.name_per || 'No encontrado');
-    console.log('🏢 Proveedor:', ordenCompra.proveedor?.nombre_proveedor || 'No encontrado');  // CORREGIDO
+    console.log('🏢 Proveedor:', ordenCompra.proveedor?.nombre_proveedor || 'No encontrado');
+    console.log('👤 Usuario solicitante:', ordenCompra.usuario_solicitante?.name_user || 'No encontrado');
 
     // Verificar que existan las referencias
     if (!ordenCompra.id_perfume) {
       console.log('⚠️ Perfume no encontrado para esta orden');
     }
     
-    if (!ordenCompra.proveedor) {  // CORREGIDO
+    if (!ordenCompra.proveedor) {
       console.log('⚠️ Proveedor no encontrado para esta orden');
     }
 
-    // Construir respuesta con toda la información
+    if (!ordenCompra.usuario_solicitante) {
+      console.log('⚠️ Usuario solicitante no encontrado para esta orden');
+    }
+
+    // Construir respuesta con toda la información actualizada para tu nueva estructura
     const respuesta = {
       message: 'Orden de compra encontrada exitosamente',
       data: {
         orden_compra: {
           _id: ordenCompra._id,
-          numero_orden: ordenCompra.n_orden_compra || numeroOrden, // CORREGIDO
+          n_orden_compra: ordenCompra.n_orden_compra || numeroOrden,
           cantidad: ordenCompra.cantidad,
           precio_unitario: ordenCompra.precio_unitario,
           precio_total: ordenCompra.precio_total,
-          fecha_orden: ordenCompra.fecha,
+          fecha: ordenCompra.fecha,
           estado: ordenCompra.estado,
           observaciones: ordenCompra.observaciones
         },
@@ -129,10 +137,9 @@ const getOrdenCompraCompleta = async (req, res) => {
           stock_minimo_per: ordenCompra.id_perfume.stock_minimo_per,
           ubicacion_per: ordenCompra.id_perfume.ubicacion_per,
           fecha_expiracion: ordenCompra.id_perfume.fecha_expiracion,
-          estado: ordenCompra.id_perfume.estado,
-          // imagen_url: ordenCompra.id_perfume.imagen_url // Removido para evitar errores en Android
+          estado: ordenCompra.id_perfume.estado
         } : null,
-        proveedor: ordenCompra.proveedor ? {  // CORREGIDO
+        proveedor: ordenCompra.proveedor ? {
           _id: ordenCompra.proveedor._id,
           nombre_proveedor: ordenCompra.proveedor.nombre_proveedor,
           rfc: ordenCompra.proveedor.rfc,
@@ -140,8 +147,13 @@ const getOrdenCompraCompleta = async (req, res) => {
           telefono: ordenCompra.proveedor.telefono,
           email: ordenCompra.proveedor.email,
           direccion: ordenCompra.proveedor.direccion,
-          fecha_registro: ordenCompra.proveedor.fecha_registro,
           estado: ordenCompra.proveedor.estado
+        } : null,
+        usuario_solicitante: ordenCompra.usuario_solicitante ? {
+          _id: ordenCompra.usuario_solicitante._id,
+          name_user: ordenCompra.usuario_solicitante.name_user,
+          correo_user: ordenCompra.usuario_solicitante.correo_user,
+          rol_user: ordenCompra.usuario_solicitante.rol_user
         } : null
       },
       debug: {
