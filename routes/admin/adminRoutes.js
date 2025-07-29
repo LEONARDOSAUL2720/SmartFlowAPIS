@@ -9,7 +9,7 @@ const {
 
 const { authMiddleware } = require('../../middleware/auth');
 const { requireAdmin } = require('../../middleware/roleMiddleware');
-const { uploadUserImage } = require('../../middleware/uploadMiddleware');
+const { uploadUserImage, convertToBase64 } = require('../../middleware/uploadMiddleware');
 
 const router = express.Router();
 
@@ -63,13 +63,13 @@ const updateUserValidation = [
 // ====== RUTAS DE GESTIÓN DE USUARIOS (ADMIN) ======
 
 // Crear nuevo usuario (con imagen opcional)
-router.post('/users', uploadUserImage, createUserValidation, createUser);
+router.post('/users', uploadUserImage, convertToBase64, createUserValidation, createUser);
 
 // Obtener lista de usuarios
 router.get('/users', getUsers);
 
 // Actualizar usuario (con imagen opcional)
-router.put('/users/:userId', uploadUserImage, updateUserValidation, updateUser);
+router.put('/users/:userId', uploadUserImage, convertToBase64, updateUserValidation, updateUser);
 
 // Eliminar usuario
 router.delete('/users/:userId', 

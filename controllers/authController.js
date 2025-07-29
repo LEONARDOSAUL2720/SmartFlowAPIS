@@ -28,11 +28,11 @@ const register = async (req, res) => {
 
     const { name_user, correo_user, password_user, rol_user } = req.body;
 
-    // Asignar ruta de imagen si existe archivo subido
+    // Asignar imagen base64 si existe archivo subido
     let imagen_user = null;
-    if (req.file) {
-      imagen_user = `/uploads/users/${req.file.filename}`;
-      console.log('🟡 [register] Imagen cargada con ruta:', imagen_user);
+    if (req.imageBase64) {
+      imagen_user = req.imageBase64;
+      console.log('🟡 [register] Imagen cargada como base64, tamaño:', imagen_user.length, 'caracteres');
     }
 
     console.log('🟢 [register] Datos recibidos:', { name_user, correo_user, rol_user });

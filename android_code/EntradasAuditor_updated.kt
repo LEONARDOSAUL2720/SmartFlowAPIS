@@ -11,6 +11,7 @@ import com.android.volley.Request
 import com.android.volley.RequestQueue
 import com.android.volley.toolbox.JsonObjectRequest
 import com.android.volley.toolbox.Volley
+import org.json.JSONArray
 import org.json.JSONObject
 
 class EntradasAuditor : AppCompatActivity() {
@@ -29,7 +30,7 @@ class EntradasAuditor : AppCompatActivity() {
     // Card de validaciones
     private lateinit var cardValidaciones: LinearLayout
 
-    // Entrada Fields (AGREGADOS - estaban faltando)
+    // Entrada Fields
     private lateinit var tvNumeroEntrada: TextView
     private lateinit var tvCantidadEntrada: TextView
     private lateinit var tvProveedorEntrada: TextView
@@ -64,13 +65,28 @@ class EntradasAuditor : AppCompatActivity() {
     private lateinit var tvDireccionProveedor: TextView
     private lateinit var tvEstadoProveedor: TextView
 
-    // Validación Fields
+    // Validación Fields - ACTUALIZADOS
     private lateinit var tvEstadoValidacion: TextView
+    private lateinit var tvMensajePrincipal: TextView
+    private lateinit var tvAccionRecomendada: TextView
+    private lateinit var tvSiguientePaso: TextView
+    private lateinit var tvTiempoResolucion: TextView
+    private lateinit var tvPorcentajeCumplimiento: TextView
+    private lateinit var tvNivelRiesgo: TextView
+    
+    // Validaciones individuales
     private lateinit var tvProveedorValidacion: TextView
     private lateinit var tvCantidadValidacion: TextView
     private lateinit var tvFechaValidacion: TextView
+    private lateinit var tvPrecioValidacion: TextView
+    private lateinit var tvEstadoOrdenValidacion: TextView
+    
+    // Contenedores de discrepancias
     private lateinit var layoutDiscrepancias: LinearLayout
-    private lateinit var containerDiscrepancias: LinearLayout
+    private lateinit var containerDiscrepanciasCriticas: LinearLayout
+    private lateinit var containerDiscrepanciasImportantes: LinearLayout
+    private lateinit var containerAdvertencias: LinearLayout
+    private lateinit var containerRecomendaciones: LinearLayout
 
     // Botón validar
     private lateinit var btnValidarEntrada: Button
@@ -98,7 +114,7 @@ class EntradasAuditor : AppCompatActivity() {
         containerDetalles = findViewById(R.id.container_detalles)
         cardValidaciones = findViewById(R.id.card_validaciones)
 
-        // Entrada Fields (CORREGIDOS)
+        // Entrada Fields
         tvNumeroEntrada = findViewById(R.id.tv_numero_entrada)
         tvCantidadEntrada = findViewById(R.id.tv_cantidad_entrada)
         tvProveedorEntrada = findViewById(R.id.tv_proveedor_entrada)
@@ -133,13 +149,28 @@ class EntradasAuditor : AppCompatActivity() {
         tvDireccionProveedor = findViewById(R.id.tv_direccion_proveedor)
         tvEstadoProveedor = findViewById(R.id.tv_estado_proveedor)
 
-        // Validaciones
+        // Validaciones - NUEVOS
         tvEstadoValidacion = findViewById(R.id.tv_estado_validacion)
+        tvMensajePrincipal = findViewById(R.id.tv_mensaje_principal)
+        tvAccionRecomendada = findViewById(R.id.tv_accion_recomendada)
+        tvSiguientePaso = findViewById(R.id.tv_siguiente_paso)
+        tvTiempoResolucion = findViewById(R.id.tv_tiempo_resolucion)
+        tvPorcentajeCumplimiento = findViewById(R.id.tv_porcentaje_cumplimiento)
+        tvNivelRiesgo = findViewById(R.id.tv_nivel_riesgo)
+        
+        // Validaciones individuales
         tvProveedorValidacion = findViewById(R.id.tv_proveedor_validacion)
         tvCantidadValidacion = findViewById(R.id.tv_cantidad_validacion)
         tvFechaValidacion = findViewById(R.id.tv_fecha_validacion)
+        tvPrecioValidacion = findViewById(R.id.tv_precio_validacion)
+        tvEstadoOrdenValidacion = findViewById(R.id.tv_estado_orden_validacion)
+        
+        // Contenedores de discrepancias
         layoutDiscrepancias = findViewById(R.id.layout_discrepancias)
-        containerDiscrepancias = findViewById(R.id.container_discrepancias)
+        containerDiscrepanciasCriticas = findViewById(R.id.container_discrepancias_criticas)
+        containerDiscrepanciasImportantes = findViewById(R.id.container_discrepancias_importantes)
+        containerAdvertencias = findViewById(R.id.container_advertencias)
+        containerRecomendaciones = findViewById(R.id.container_recomendaciones)
 
         // Botón validar
         btnValidarEntrada = findViewById(R.id.btn_validar_entrada)
@@ -225,28 +256,21 @@ class EntradasAuditor : AppCompatActivity() {
             val data = response.getJSONObject("data")
             val entrada = data.getJSONObject("entrada")
             val perfume = data.optJSONObject("perfume")
-            val proveedor = data.optJSONObject("proveedor_detalle") // CORREGIDO: era "proveedor"
+            val proveedor = data.optJSONObject("proveedor_detalle")
             val ordenCompra = data.optJSONObject("orden_compra_relacionada")
             val validacion = data.getJSONObject("validacion")
 
             displayEntradaData(entrada, perfume, proveedor, ordenCompra)
-            displayValidaciones(validacion)
+            displayValidacionesDetalladas(validacion)
 
-        // Mostrar el container principal de detalles
-        containerDetalles.visibility = View.VISIBLE
-        cardValidaciones.visibility = View.VISIBLE
+            // Mostrar el container principal de detalles
+            containerDetalles.visibility = View.VISIBLE
+            cardValidaciones.visibility = View.VISIBLE
 
-        // Configurar botón de validación según el estado actual
-        val estatusValidacion = entrada.optString("estatus_validacion", "registrado")
-        if (estatusValidacion == "validado") {
-            btnValidarEntrada.isEnabled = false
-            btnValidarEntrada.text = "✅ Ya Validada"
-            btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.holo_green_dark)
-        } else {
-            btnValidarEntrada.isEnabled = true
-            btnValidarEntrada.text = "Validar Entrada"
-            btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, R.color.lavanda_suave)
-        }        } catch (e: Exception) {
+            // Configurar botón de validación según el estado actual y las validaciones
+            configurarBotonValidacion(entrada, validacion)
+
+        } catch (e: Exception) {
             Log.e("EntradasAuditor", "❌ Error procesando respuesta", e)
             showError("Error procesando los datos recibidos: ${e.message}")
         }
@@ -258,24 +282,24 @@ class EntradasAuditor : AppCompatActivity() {
         proveedor: JSONObject?,
         ordenCompra: JSONObject?
     ) {
-        // CORREGIDO: Mostrar datos de la ENTRADA (estaban faltando)
+        // Mostrar datos de la ENTRADA
         tvNumeroEntrada.text = "N° Entrada: ${entrada.optString("numero_entrada", "No disponible")}"
         tvCantidadEntrada.text = "Cantidad: ${entrada.optInt("cantidad", 0)}"
-        
-        // Proveedor de la entrada (viene embebido en entrada.proveedor)
+
+        // Proveedor de la entrada
         val proveedorEntrada = entrada.optJSONObject("proveedor")
         tvProveedorEntrada.text = "Proveedor: ${proveedorEntrada?.optString("nombre_proveedor", "No disponible") ?: "No disponible"}"
         tvFechaEntrada.text = "Fecha entrada: ${formatDate(entrada.optString("fecha_entrada", ""))}"
         tvEstatusEntrada.text = "Estatus: ${entrada.optString("estatus_validacion", "No disponible").uppercase()}"
 
-        // CORREGIDO: Mostrar datos de la orden de compra relacionada
+        // Mostrar datos de la orden de compra relacionada
         if (ordenCompra != null) {
-            tvNumeroOrden.text = "N° Orden: ${ordenCompra.optString("numero_orden", "No disponible")}" // CORREGIDO: era "n.orden_compra"
+            tvNumeroOrden.text = "N° Orden: ${ordenCompra.optString("numero_orden", "No disponible")}"
             tvCantidad.text = "Cantidad: ${ordenCompra.optInt("cantidad", 0)}"
             tvPrecioUnitario.text = "Precio unitario: $${ordenCompra.optDouble("precio_unitario", 0.0)}"
             tvPrecioTotal.text = "Precio total: $${ordenCompra.optDouble("precio_total", 0.0)}"
-            tvFechaOrden.text = "Fecha: ${formatDate(ordenCompra.optString("fecha_orden", ""))}" // CORREGIDO: era "fecha_orden"
-            tvEstatus.text = "Estatus: ${ordenCompra.optString("estado", "No disponible").uppercase()}" // CORREGIDO: era "estatus"
+            tvFechaOrden.text = "Fecha: ${formatDate(ordenCompra.optString("fecha_orden", ""))}"
+            tvEstatus.text = "Estatus: ${ordenCompra.optString("estado", "No disponible").uppercase()}"
         } else {
             tvNumeroOrden.text = "N° Orden: No encontrada"
             tvCantidad.text = "Cantidad: No disponible"
@@ -285,7 +309,7 @@ class EntradasAuditor : AppCompatActivity() {
             tvEstatus.text = "Estatus: No disponible"
         }
 
-        // Mostrar datos del perfume (los nombres están correctos)
+        // Mostrar datos del perfume
         if (perfume != null) {
             tvNombrePerfume.text = "Nombre: ${perfume.optString("name_per", "No disponible")}"
             tvDescripcionPerfume.text = "Descripción: ${perfume.optString("descripcion_per", "No disponible")}"
@@ -308,7 +332,7 @@ class EntradasAuditor : AppCompatActivity() {
             tvEstadoPerfume.text = "Estado: No disponible"
         }
 
-        // Mostrar datos del proveedor (los nombres están correctos)
+        // Mostrar datos del proveedor
         if (proveedor != null) {
             tvNombreProveedor.text = "Nombre: ${proveedor.optString("nombre_proveedor", "No disponible")}"
             tvRfcProveedor.text = "RFC: ${proveedor.optString("rfc", "No disponible")}"
@@ -328,25 +352,59 @@ class EntradasAuditor : AppCompatActivity() {
         }
     }
 
-    private fun displayValidaciones(validacion: JSONObject) {
+    private fun displayValidacionesDetalladas(validacion: JSONObject) {
         try {
-            val estadoGeneral = validacion.getString("estado_general")
+            // RESUMEN EJECUTIVO
+            val resumenEjecutivo = validacion.getJSONObject("resumen_ejecutivo")
+            val estado = resumenEjecutivo.getString("estado")
+            val color = resumenEjecutivo.getString("color")
+            val icono = resumenEjecutivo.getString("icono")
+            val mensajePrincipal = resumenEjecutivo.getString("mensaje_principal")
+            val accionRecomendada = resumenEjecutivo.getString("accion_recomendada")
+            val siguientePaso = resumenEjecutivo.getString("siguiente_paso")
+            val tiempoResolucion = resumenEjecutivo.getString("tiempo_estimado_resolucion")
+            val puedeProceser = resumenEjecutivo.getBoolean("puede_procesar")
+
+            // Estado general con colores
+            tvEstadoValidacion.text = "$icono $estado"
+            val colorInt = when(estado) {
+                "APROBADA" -> android.R.color.holo_green_dark
+                "CONDICIONAL" -> android.R.color.holo_orange_light
+                "REQUIERE_REVISION_GERENCIAL" -> android.R.color.holo_orange_dark
+                "RECHAZADA" -> android.R.color.holo_red_dark
+                else -> android.R.color.darker_gray
+            }
+            tvEstadoValidacion.setTextColor(ContextCompat.getColor(this, colorInt))
+
+            // Información ejecutiva
+            tvMensajePrincipal.text = mensajePrincipal
+            tvAccionRecomendada.text = "Acción: $accionRecomendada"
+            tvSiguientePaso.text = "Siguiente paso: $siguientePaso"
+            tvTiempoResolucion.text = "Tiempo estimado: $tiempoResolucion"
+            
+            // Métricas
+            val porcentajeCumplimiento = validacion.getInt("porcentaje_cumplimiento")
+            val nivelRiesgo = validacion.getString("nivel_riesgo")
+            
+            tvPorcentajeCumplimiento.text = "Cumplimiento: ${porcentajeCumplimiento}%"
+            tvNivelRiesgo.text = "Riesgo: $nivelRiesgo"
+            
+            val colorRiesgo = when(nivelRiesgo) {
+                "BAJO" -> android.R.color.holo_green_dark
+                "MEDIO-BAJO" -> android.R.color.holo_green_light
+                "MEDIO" -> android.R.color.holo_orange_light
+                "ALTO" -> android.R.color.holo_red_dark
+                else -> android.R.color.darker_gray
+            }
+            tvNivelRiesgo.setTextColor(ContextCompat.getColor(this, colorRiesgo))
+
+            // VALIDACIONES INDIVIDUALES
             val proveedorCoincide = validacion.getBoolean("proveedor_coincide")
             val cantidadValida = validacion.getBoolean("cantidad_valida")
             val fechaCoherente = validacion.getBoolean("fecha_coherente")
-            val discrepancias = validacion.getJSONArray("discrepancias")
-            val advertencias = validacion.getJSONArray("advertencias")
+            val precioCoherente = validacion.getBoolean("precio_coherente")
+            val estadoOrdenValido = validacion.getBoolean("estado_orden_valido")
 
-            // Estado general con colores
-            tvEstadoValidacion.text = "Estado: $estadoGeneral"
-            tvEstadoValidacion.setTextColor(ContextCompat.getColor(this, when(estadoGeneral) {
-                "VALIDA" -> android.R.color.holo_green_dark
-                "CON_OBSERVACIONES" -> android.R.color.holo_orange_dark
-                "REQUIERE_REVISION" -> android.R.color.holo_red_dark
-                else -> android.R.color.darker_gray
-            }))
-
-            // Validaciones individuales con íconos
             tvProveedorValidacion.text = "Proveedor: ${if (proveedorCoincide) "✅ Coincide" else "❌ No coincide"}"
             tvProveedorValidacion.setTextColor(ContextCompat.getColor(this,
                 if (proveedorCoincide) android.R.color.holo_green_dark else android.R.color.holo_red_dark))
@@ -359,51 +417,175 @@ class EntradasAuditor : AppCompatActivity() {
             tvFechaValidacion.setTextColor(ContextCompat.getColor(this,
                 if (fechaCoherente) android.R.color.holo_green_dark else android.R.color.holo_red_dark))
 
-            // Mostrar discrepancias y advertencias
-            if (discrepancias.length() > 0 || advertencias.length() > 0) {
-                layoutDiscrepancias.visibility = View.VISIBLE
-                containerDiscrepancias.removeAllViews()
+            tvPrecioValidacion.text = "Precio: ${if (precioCoherente) "✅ Coherente" else "❌ Incoherente"}"
+            tvPrecioValidacion.setTextColor(ContextCompat.getColor(this,
+                if (precioCoherente) android.R.color.holo_green_dark else android.R.color.holo_red_dark))
 
-                // Agregar discrepancias
-                for (i in 0 until discrepancias.length()) {
-                    val discrepancia = discrepancias.getJSONObject(i)
-                    val mensaje = discrepancia.getString("mensaje")
-                    val gravedad = discrepancia.getString("gravedad")
+            tvEstadoOrdenValidacion.text = "Estado Orden: ${if (estadoOrdenValido) "✅ Válido" else "❌ Inválido"}"
+            tvEstadoOrdenValidacion.setTextColor(ContextCompat.getColor(this,
+                if (estadoOrdenValido) android.R.color.holo_green_dark else android.R.color.holo_red_dark))
 
-                    val textView = TextView(this)
-                    textView.text = "🚨 $mensaje"
-                    textView.setTextColor(ContextCompat.getColor(this, when(gravedad) {
-                        "ALTA" -> android.R.color.holo_red_dark
-                        "MEDIA" -> android.R.color.holo_orange_dark
-                        else -> android.R.color.darker_gray
-                    }))
-                    textView.textSize = 14f
-                    textView.setPadding(8, 4, 8, 4)
+            // DISCREPANCIAS Y OBSERVACIONES
+            mostrarDiscrepanciasDetalladas(validacion)
 
-                    containerDiscrepancias.addView(textView)
-                }
-
-                // Agregar advertencias
-                for (i in 0 until advertencias.length()) {
-                    val advertencia = advertencias.getJSONObject(i)
-                    val mensaje = advertencia.getString("mensaje")
-
-                    val textView = TextView(this)
-                    textView.text = "⚠️ $mensaje"
-                    textView.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
-                    textView.textSize = 14f
-                    textView.setPadding(8, 4, 8, 4)
-
-                    containerDiscrepancias.addView(textView)
-                }
-            } else {
-                layoutDiscrepancias.visibility = View.GONE
-            }
-
-            Log.d("EntradasAuditor", "✅ Validaciones mostradas: $estadoGeneral")
+            Log.d("EntradasAuditor", "✅ Validaciones detalladas mostradas: $estado")
 
         } catch (e: Exception) {
-            Log.e("EntradasAuditor", "❌ Error mostrando validaciones", e)
+            Log.e("EntradasAuditor", "❌ Error mostrando validaciones detalladas", e)
+        }
+    }
+
+    private fun mostrarDiscrepanciasDetalladas(validacion: JSONObject) {
+        try {
+            // Limpiar contenedores
+            containerDiscrepanciasCriticas.removeAllViews()
+            containerDiscrepanciasImportantes.removeAllViews()
+            containerAdvertencias.removeAllViews()
+            containerRecomendaciones.removeAllViews()
+
+            var hayDiscrepancias = false
+
+            // DISCREPANCIAS CRÍTICAS
+            val discrepanciasCriticas = validacion.getJSONArray("discrepancias_criticas")
+            if (discrepanciasCriticas.length() > 0) {
+                hayDiscrepancias = true
+                mostrarCategoria("🚨 DISCREPANCIAS CRÍTICAS", discrepanciasCriticas, containerDiscrepanciasCriticas, android.R.color.holo_red_dark)
+            }
+
+            // DISCREPANCIAS IMPORTANTES
+            val discrepanciasImportantes = validacion.getJSONArray("discrepancias_importantes")
+            if (discrepanciasImportantes.length() > 0) {
+                hayDiscrepancias = true
+                mostrarCategoria("⚠️ DISCREPANCIAS IMPORTANTES", discrepanciasImportantes, containerDiscrepanciasImportantes, android.R.color.holo_orange_dark)
+            }
+
+            // ADVERTENCIAS
+            val advertencias = validacion.getJSONArray("advertencias")
+            if (advertencias.length() > 0) {
+                hayDiscrepancias = true
+                mostrarCategoria("📋 ADVERTENCIAS", advertencias, containerAdvertencias, android.R.color.holo_orange_light)
+            }
+
+            // RECOMENDACIONES
+            val recomendaciones = validacion.getJSONArray("recomendaciones")
+            if (recomendaciones.length() > 0) {
+                mostrarCategoria("✅ RECOMENDACIONES", recomendaciones, containerRecomendaciones, android.R.color.holo_green_dark)
+            }
+
+            // Mostrar u ocultar el layout de discrepancias
+            layoutDiscrepancias.visibility = if (hayDiscrepancias) View.VISIBLE else View.GONE
+
+        } catch (e: Exception) {
+            Log.e("EntradasAuditor", "❌ Error mostrando discrepancias detalladas", e)
+        }
+    }
+
+    private fun mostrarCategoria(titulo: String, items: JSONArray, container: LinearLayout, color: Int) {
+        // Título de la categoría
+        val tituloView = TextView(this)
+        tituloView.text = titulo
+        tituloView.setTextColor(ContextCompat.getColor(this, color))
+        tituloView.textSize = 16f
+        tituloView.setTypeface(null, android.graphics.Typeface.BOLD)
+        tituloView.setPadding(0, 8, 0, 4)
+        container.addView(tituloView)
+
+        // Items de la categoría
+        for (i in 0 until items.length()) {
+            val item = items.getJSONObject(i)
+            mostrarItemDiscrepancia(item, container, color)
+        }
+    }
+
+    private fun mostrarItemDiscrepancia(item: JSONObject, container: LinearLayout, color: Int) {
+        // Título del item
+        val titulo = item.optString("titulo", item.optString("mensaje", "Sin título"))
+        val tituloView = TextView(this)
+        tituloView.text = titulo
+        tituloView.setTextColor(ContextCompat.getColor(this, color))
+        tituloView.textSize = 14f
+        tituloView.setTypeface(null, android.graphics.Typeface.BOLD)
+        tituloView.setPadding(16, 4, 8, 2)
+        container.addView(tituloView)
+
+        // Descripción si existe
+        val descripcion = item.optString("descripcion", "")
+        if (descripcion.isNotEmpty()) {
+            val descripcionView = TextView(this)
+            descripcionView.text = descripcion
+            descripcionView.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
+            descripcionView.textSize = 12f
+            descripcionView.setPadding(32, 2, 8, 4)
+            container.addView(descripcionView)
+        }
+
+        // Qué hacer
+        val queHacer = item.optString("que_hacer", "")
+        if (queHacer.isNotEmpty()) {
+            val queHacerView = TextView(this)
+            queHacerView.text = "💡 $queHacer"
+            queHacerView.setTextColor(ContextCompat.getColor(this, android.R.color.holo_blue_dark))
+            queHacerView.textSize = 12f
+            queHacerView.setTypeface(null, android.graphics.Typeface.BOLD)
+            queHacerView.setPadding(32, 2, 8, 4)
+            container.addView(queHacerView)
+        }
+
+        // Acciones sugeridas
+        val accionesSugeridas = item.optJSONArray("acciones_sugeridas")
+        if (accionesSugeridas != null && accionesSugeridas.length() > 0) {
+            for (j in 0 until accionesSugeridas.length()) {
+                val accion = accionesSugeridas.getString(j)
+                val accionView = TextView(this)
+                accionView.text = "  • $accion"
+                accionView.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
+                accionView.textSize = 11f
+                accionView.setPadding(40, 1, 8, 1)
+                container.addView(accionView)
+            }
+        }
+
+        // Espaciador
+        val espaciador = View(this)
+        espaciador.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 
+            8
+        )
+        container.addView(espaciador)
+    }
+
+    private fun configurarBotonValidacion(entrada: JSONObject, validacion: JSONObject) {
+        val estatusValidacion = entrada.optString("estatus_validacion", "registrado")
+        val resumenEjecutivo = validacion.getJSONObject("resumen_ejecutivo")
+        val puedeProceser = resumenEjecutivo.getBoolean("puede_procesar")
+        val estado = resumenEjecutivo.getString("estado")
+
+        when {
+            estatusValidacion == "validado" -> {
+                btnValidarEntrada.isEnabled = false
+                btnValidarEntrada.text = "✅ Ya Validada"
+                btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.holo_green_dark)
+            }
+            estado == "RECHAZADA" || !puedeProceser -> {
+                btnValidarEntrada.isEnabled = false
+                btnValidarEntrada.text = "❌ No se puede validar"
+                btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.holo_red_dark)
+            }
+            estado == "REQUIERE_REVISION_GERENCIAL" -> {
+                btnValidarEntrada.isEnabled = true
+                btnValidarEntrada.text = "⚠️ Validar (Requiere Aprobación)"
+                btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.holo_orange_dark)
+            }
+            estado == "CONDICIONAL" -> {
+                btnValidarEntrada.isEnabled = true
+                btnValidarEntrada.text = "⚡ Validar con Observaciones"
+                btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.holo_orange_light)
+            }
+            else -> {
+                btnValidarEntrada.isEnabled = true
+                btnValidarEntrada.text = "✅ Validar Entrada"
+                btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, R.color.lavanda_suave)
+            }
         }
     }
 
@@ -435,15 +617,15 @@ class EntradasAuditor : AppCompatActivity() {
         val builder = androidx.appcompat.app.AlertDialog.Builder(this)
         builder.setTitle("Confirmar Validación")
         builder.setMessage("¿Estás seguro de que deseas validar esta entrada?\n\nEsto actualizará:\n• Estado de la orden de compra a 'Completada'\n• Stock del perfume con la cantidad de la entrada\n• Estado de validación de la entrada")
-        
+
         builder.setPositiveButton("Validar") { _, _ ->
             ejecutarValidacionEntrada(numeroEntrada)
         }
-        
+
         builder.setNegativeButton("Cancelar") { dialog, _ ->
             dialog.dismiss()
         }
-        
+
         builder.show()
     }
 
@@ -471,7 +653,7 @@ class EntradasAuditor : AppCompatActivity() {
                 btnValidarEntrada.isEnabled = false
                 btnValidarEntrada.text = "✅ Validada"
                 btnValidarEntrada.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.holo_green_dark)
-                
+
                 handleValidacionResponse(response)
             },
             { error ->
@@ -513,7 +695,7 @@ class EntradasAuditor : AppCompatActivity() {
             val success = response.getBoolean("success")
             val message = response.getString("message")
             val data = response.getJSONObject("data")
-            
+
             if (success) {
                 // Mostrar información de la validación
                 val entrada = data.getJSONObject("entrada")
@@ -540,9 +722,12 @@ class EntradasAuditor : AppCompatActivity() {
                     • Stock nuevo: ${perfume.getInt("stock_nuevo")}
                     • Cantidad agregada: +${perfume.getInt("cantidad_agregada")}
                     
-                    👤 AUDITOR:
-                    • ${auditor.getString("nombre")}
-                    • Fecha: ${formatDate(auditor.getString("fecha_validacion"))}
+                    👤 AUDITOR RESPONSABLE:
+                    • Nombre: ${auditor.optString("nombre", "No disponible")}${if (auditor.optString("apellido", "").isNotEmpty()) " ${auditor.getString("apellido")}" else ""}
+                    • Email: ${auditor.optString("email", "No disponible")}
+                    • Rol: ${auditor.optString("rol", "Auditor")}
+                    • ID Usuario: ${auditor.optString("id", "No disponible")}
+                    • Fecha: ${auditor.optString("fecha_validacion_formateada", formatDate(auditor.optString("fecha_validacion", "")))}
                 """.trimIndent()
 
                 // Mostrar diálogo con detalles
@@ -551,13 +736,13 @@ class EntradasAuditor : AppCompatActivity() {
                 builder.setMessage(detalleValidacion)
                 builder.setPositiveButton("Entendido") { dialog, _ ->
                     dialog.dismiss()
-                    // Opcionalmente, actualizar la vista con los nuevos datos
+                    // Actualizar la vista con los nuevos datos
                     buscarEntrada(entrada.getString("numero_entrada"))
                 }
                 builder.show()
 
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                
+
             } else {
                 showError("Error en la validación: $message")
             }

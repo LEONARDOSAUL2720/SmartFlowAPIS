@@ -1,26 +1,8 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 
-// Crear directorio uploads si no existe
-const uploadsDir = path.join(__dirname, '..', 'uploads', 'users');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Configuración de almacenamiento
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    // Generar nombre único: userId_timestamp.extension
-    const userId = req.body.user_id || Date.now();
-    const extension = path.extname(file.originalname);
-    const filename = `user_${userId}_${Date.now()}${extension}`;
-    cb(null, filename);
-  }
-});
+// Configuración de almacenamiento en memoria para convertir a base64
+const storage = multer.memoryStorage();
 
 // Filtro para validar tipos de archivo
 const fileFilter = (req, file, cb) => {
@@ -42,7 +24,26 @@ const upload = multer({
   }
 });
 
+// Middleware para convertir imagen a base64
+const convertToBase64 = (req, res, next) => {
+  if (req.file) {
+    // Convertir buffer a base64
+    const base64String = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    
+    // Agregar la cadena base64 al req para que esté disponible en el controlador
+    req.imageBase64 = base64String;
+    
+    console.log('📸 Imagen convertida a base64:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      base64Length: base64String.length
+    });
+  }
+  next();
+};
+
 module.exports = {
   uploadUserImage: upload.single('imagen_user'),
-  uploadsDir
+  convertToBase64
 };

@@ -69,15 +69,9 @@ userSchema.methods.toPublicJSON = function() {
   const user = this.toObject();
   delete user.password_user;
   
-  // Convertir ruta relativa de imagen a URL completa
-  if (user.imagen_user) {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-    console.log('🔍 DEBUG - BASE_URL utilizada:', baseUrl); // Log para debugging
-    user.imagen_url = `${baseUrl}${user.imagen_user}`;
-    console.log('🔍 DEBUG - imagen_url generada:', user.imagen_url); // Log para debugging
-  } else {
-    user.imagen_url = null;
-  }
+  // Asignar la imagen base64 o null directamente a imagen_url
+  user.imagen_url = user.imagen_user || null;
+  console.log('🔍 DEBUG - imagen_url asignada:', user.imagen_url ? 'Base64 disponible' : 'Sin imagen'); // Log para debugging
   
   return user;
 };

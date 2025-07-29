@@ -2,7 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const { register, login, getProfile, updateProfile } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/auth');
-const { uploadUserImage } = require('../middleware/uploadMiddleware');
+const { uploadUserImage, convertToBase64 } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
 
@@ -57,8 +57,8 @@ const multerErrorHandler = (err, req, res, next) => {
   next();
 };
 
-// Ruta de registro: primero multer, luego validación, luego controlador
-router.post('/register', uploadUserImage, multerErrorHandler, registerValidation, register);
+// Ruta de registro: primero multer, luego conversión a base64, luego validación, luego controlador
+router.post('/register', uploadUserImage, convertToBase64, multerErrorHandler, registerValidation, register);
 
 router.post('/login', loginValidation, login);
 

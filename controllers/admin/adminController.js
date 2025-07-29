@@ -1,7 +1,5 @@
 const User = require('../../models/User');
 const { validationResult } = require('express-validator');
-const path = require('path');
-const fs = require('fs');
 
 // Crear nuevo usuario (solo Admin)
 const createUser = async (req, res) => {
@@ -29,14 +27,15 @@ const createUser = async (req, res) => {
     console.log('Body:', req.body);
     console.log('File:', req.file);
     console.log('Files:', req.files);
+    console.log('ImageBase64:', req.imageBase64 ? 'Sí, tamaño:' + req.imageBase64.length : 'No');
 
     // Procesar imagen si se subió
     let imagen_user = null;
-    if (req.file) {
-      imagen_user = `/uploads/users/${req.file.filename}`;
-      console.log('✅ Imagen encontrada:', imagen_user);
+    if (req.imageBase64) {
+      imagen_user = req.imageBase64;
+      console.log('✅ Imagen convertida a base64, tamaño:', imagen_user.length, 'caracteres');
     } else {
-      console.log('❌ No se encontró archivo en req.file');
+      console.log('❌ No se encontró imagen en base64');
     }
 
     // Crear nuevo usuario
@@ -59,13 +58,7 @@ const createUser = async (req, res) => {
   } catch (error) {
     console.error('Error creando usuario:', error);
     
-    // Si hay error, eliminar archivo subido
-    if (req.file) {
-      const filePath = path.join(__dirname, '..', '..', 'uploads', 'users', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    }
+    // Ya no necesitamos eliminar archivos porque usamos base64
 
     res.status(500).json({
       error: 'Error interno del servidor',
@@ -141,17 +134,10 @@ const updateUser = async (req, res) => {
     });
 
     // Procesar nueva imagen
-    if (req.file) {
-      // Obtener usuario actual para eliminar imagen anterior
-      const currentUser = await User.findById(userId);
-      if (currentUser && currentUser.imagen_user) {
-        const oldImagePath = path.join(__dirname, '..', '..', currentUser.imagen_user);
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
-        }
-      }
-      
-      updates.imagen_user = `/uploads/users/${req.file.filename}`;
+    if (req.imageBase64) {
+      // Ya no necesitamos eliminar archivo anterior porque ahora se guarda en base64
+      updates.imagen_user = req.imageBase64;
+      console.log('✅ Imagen actualizada a base64, tamaño:', req.imageBase64.length, 'caracteres');
     }
 
     const user = await User.findByIdAndUpdate(
@@ -175,13 +161,7 @@ const updateUser = async (req, res) => {
   } catch (error) {
     console.error('Error actualizando usuario:', error);
     
-    // Si hay error, eliminar nueva imagen subida
-    if (req.file) {
-      const filePath = path.join(__dirname, '..', '..', 'uploads', 'users', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    }
+    // Ya no necesitamos eliminar archivos porque usamos base64
 
     res.status(500).json({
       error: 'Error interno del servidor',
@@ -203,13 +183,7 @@ const deleteUser = async (req, res) => {
       });
     }
 
-    // Eliminar imagen del usuario si existe
-    if (user.imagen_user) {
-      const imagePath = path.join(__dirname, '..', '..', user.imagen_user);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
-    }
+    // Ya no necesitamos eliminar archivos de imagen porque usamos base64
 
     await User.findByIdAndDelete(userId);
 

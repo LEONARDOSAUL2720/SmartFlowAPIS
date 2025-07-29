@@ -51,6 +51,11 @@ const ordenCompraSchema = new mongoose.Schema({
     type: String,
     default: '',
     trim: true
+  },
+  almacen: {  // AGREGAR campo almacen
+    type: String,
+    required: true,
+    trim: true
   }
 }, {
   timestamps: true,
@@ -71,7 +76,8 @@ ordenCompraSchema.methods.toPublicJSON = function() {
     fecha: orden.fecha,  // CORREGIDO
     estado: orden.estado,  // CORREGIDO
     usuario_solicitante: orden.usuario_solicitante,
-    observaciones: orden.observaciones
+    observaciones: orden.observaciones,
+    almacen: orden.almacen
   };
 };
 
