@@ -17,7 +17,7 @@ class OrdenesCompra : AppCompatActivity() {
 
     // Configuración de la API
     private val BASE_URL = "https://smartflow-mwmm.onrender.com/api"
-    private val ORDEN_ENDPOINT = "$BASE_URL/auditor/orden"
+    private val ORDEN_ENDPOINT = "$BASE_URL/auditor/orden-compra"
 
     // UI Components principales
     private lateinit var etIdOrden: EditText

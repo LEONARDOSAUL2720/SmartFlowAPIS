@@ -467,7 +467,165 @@ const getEntradaCompleta = async (req, res) => {
   }
 };
 
+// Procesar validación de entrada y actualizar datos
+const procesarValidacionEntrada = async (req, res) => {
+  console.log('🔄 Procesamiento de validación de entrada iniciado');
+  console.log('📋 Número de entrada recibido:', req.params.id);
+  console.log('👤 Usuario auditor:', {
+    id: req.user?._id,
+    name: req.user?.name_user,
+    role: req.user?.rol_user
+  });
+  
+  try {
+    const { id: numeroEntrada } = req.params;
+    
+    // Validar que el número de entrada no esté vacío
+    if (!numeroEntrada || numeroEntrada.trim() === '') {
+      return res.status(400).json({
+        error: 'Número de entrada inválido',
+        message: 'El número de entrada no puede estar vacío'
+      });
+    }
+
+    // 1. Buscar la entrada
+    console.log('🔍 Buscando entrada...');
+    const entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
+      .populate('id_perfume')
+      .populate('proveedor');
+
+    if (!entrada) {
+      return res.status(404).json({
+        error: 'Entrada no encontrada',
+        message: `La entrada ${numeroEntrada} no existe en el sistema`
+      });
+    }
+
+    // 2. Buscar la orden de compra relacionada por el mismo perfume y proveedor
+    console.log('🔍 Buscando orden de compra relacionada...');
+    
+    // Primero obtener datos del proveedor si es necesario
+    let proveedorData = null;
+    if (entrada.proveedor) {
+      if (typeof entrada.proveedor === 'string') {
+        proveedorData = await Proveedor.findOne({ nombre_proveedor: entrada.proveedor });
+      } else {
+        proveedorData = entrada.proveedor;
+      }
+    }
+
+    if (!proveedorData) {
+      return res.status(404).json({
+        error: 'Proveedor no encontrado',
+        message: 'No se pudo determinar el proveedor de esta entrada'
+      });
+    }
+
+    // Buscar orden de compra que tenga el mismo perfume y proveedor
+    const ordenesCompra = await OrdenCompra.find({ 
+      id_perfume: entrada.id_perfume._id 
+    }).populate('id_perfume').populate('proveedor');
+
+    const ordenCompra = ordenesCompra.find(orden => {
+      return orden.proveedor?._id?.toString() === proveedorData._id.toString();
+    });
+
+    if (!ordenCompra) {
+      return res.status(404).json({
+        error: 'Orden de compra no encontrada',
+        message: `No se encontró una orden de compra relacionada para el perfume ${entrada.id_perfume.name_per} y proveedor ${proveedorData.nombre_proveedor}`
+      });
+    }
+
+    // 3. Verificar que la orden no esté ya completada
+    if (ordenCompra.estado === 'Completada') {
+      return res.status(400).json({
+        error: 'Orden ya procesada',
+        message: 'Esta orden de compra ya ha sido completada anteriormente'
+      });
+    }
+
+    // 4. Actualizar el estado de la orden de compra a "Completada"
+    console.log('📝 Actualizando estado de orden de compra...');
+    ordenCompra.estado = 'Completada';
+    ordenCompra.observaciones = `Validada por auditor ${req.user.name_user} el ${new Date().toISOString()}`;
+    await ordenCompra.save();
+
+    // 5. Actualizar el stock del perfume
+    console.log('📦 Actualizando stock del perfume...');
+    const perfume = entrada.id_perfume;
+    
+    if (!perfume) {
+      return res.status(404).json({
+        error: 'Perfume no encontrado',
+        message: 'El perfume asociado a esta entrada no existe'
+      });
+    }
+
+    // Agregar la cantidad de la entrada al stock actual
+    const stockAnterior = perfume.stock_per;
+    perfume.stock_per += entrada.cantidad;
+    await perfume.save();
+
+    // 6. Actualizar el estatus de validación de la entrada
+    console.log('✅ Actualizando estatus de validación...');
+    entrada.estatus_validacion = 'validado';
+    entrada.fecha_validacion = new Date();
+    entrada.validado_por = req.user._id;
+    entrada.observaciones_auditor = `Validada por auditor ${req.user.name_user} el ${new Date().toLocaleString()}`;
+    await entrada.save();
+
+    // 7. Respuesta exitosa con detalles de las actualizaciones
+    const respuesta = {
+      success: true,
+      message: 'Entrada validada y procesada exitosamente',
+      data: {
+        entrada: {
+          numero_entrada: entrada.numero_entrada,
+          cantidad: entrada.cantidad,
+          estatus_anterior: 'registrado',
+          estatus_nuevo: entrada.estatus_validacion,
+          fecha_validacion: entrada.fecha_validacion,
+          observaciones: entrada.observaciones_auditor
+        },
+        orden_compra: {
+          numero_orden: ordenCompra.n_orden_compra,
+          estado_anterior: 'Pendiente',
+          estado_nuevo: ordenCompra.estado,
+          observaciones: ordenCompra.observaciones
+        },
+        perfume: {
+          id: perfume._id,
+          nombre: perfume.name_per,
+          stock_anterior: stockAnterior,
+          stock_nuevo: perfume.stock_per,
+          cantidad_agregada: entrada.cantidad
+        },
+        auditor: {
+          id: req.user._id,
+          nombre: req.user.name_user,
+          fecha_validacion: new Date()
+        }
+      }
+    };
+
+    console.log('🎉 Validación procesada exitosamente');
+    console.log('📊 Stock actualizado:', `${stockAnterior} → ${perfume.stock_per}`);
+    console.log('📋 Orden completada:', ordenCompra.n_orden_compra);
+    
+    res.json(respuesta);
+
+  } catch (error) {
+    console.error('❌ Error en procesamiento de validación:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: 'Error al procesar la validación de entrada'
+    });
+  }
+};
+
 module.exports = {
   getOrdenCompraCompleta,
-  getEntradaCompleta
+  getEntradaCompleta,
+  procesarValidacionEntrada
 };

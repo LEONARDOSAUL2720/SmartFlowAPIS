@@ -1,7 +1,8 @@
 const express = require('express');
 const { 
   getOrdenCompraCompleta,
-  getEntradaCompleta
+  getEntradaCompleta,
+  procesarValidacionEntrada
 } = require('../../controllers/auditor/auditorController');
 
 const { authMiddleware } = require('../../middleware/auth');
@@ -20,6 +21,8 @@ router.use(requireAuditor);
 router.get('/orden-compra/:id', getOrdenCompraCompleta);
 // GET /api/auditor/entrada/:id
 router.get('/entrada/:id', getEntradaCompleta);
+// POST /api/auditor/validar-entrada/:id - Procesar validación de entrada
+router.post('/validar-entrada/:id', procesarValidacionEntrada);
 
 
 module.exports = router;
