@@ -3,6 +3,7 @@ const OrdenCompra = require('../../models/OrdenCompra');
 const Perfume = require('../../models/Perfume');
 const Entrada = require('../../models/Entrada');  
 const Proveedor = require('../../models/Proveedor');
+const Traspaso = require('../../models/Traspaso');
 const { validationResult } = require('express-validator');
 
 // Buscar orden de compra completa por número de orden
@@ -890,6 +891,714 @@ const getEntradaCompleta = async (req, res) => {
     console.error('❌ Error en búsqueda de entrada:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
+      message: 'Error al buscar la entrada',
+      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Buscar entrada tipo TRASPASO completa por número de referencia CON validación cruzada
+const getEntradaTraspasoCompleta = async (req, res) => {
+  console.log('🔄 Búsqueda de entrada tipo TRASPASO iniciada');
+  console.log('📋 Número de referencia recibido:', req.params.id);
+  
+  try {
+    const { id: numeroReferencia } = req.params;
+    
+    if (!numeroReferencia || numeroReferencia.trim() === '') {
+      return res.status(400).json({
+        error: 'Número de referencia inválido',
+        message: 'El número de referencia no puede estar vacío'
+      });
+    }
+
+    // 1. Buscar la entrada tipo TRASPASO por referencia_traspaso
+    console.log('🔍 Buscando entrada tipo traspaso...');
+    let entrada = await Entrada.findOne({ 
+      referencia_traspaso: numeroReferencia,
+      tipo: 'Traspaso'
+    })
+      .populate('id_perfume')
+      .populate('usuario_registro', 'name_user correo_user rol_user')
+      .populate('validado_por', 'name_user correo_user rol_user')
+      .populate('almacen_entrada', 'nombre_almacen ubicacion');
+
+    if (!entrada) {
+      return res.status(404).json({
+        error: 'Entrada de traspaso no encontrada',
+        message: `No se encontró una entrada de traspaso con referencia: ${numeroReferencia}`
+      });
+    }
+
+    console.log('✅ Entrada de traspaso encontrada:', entrada._id);
+    console.log('🔍 DEBUG - Tipo de entrada:', entrada.tipo);
+    console.log('🔍 DEBUG - Referencia traspaso:', entrada.referencia_traspaso);
+
+    // 2. Buscar el traspaso original por numero_traspaso
+    console.log('🔍 Buscando traspaso original...');
+    const traspaso = await Traspaso.findOne({ numero_traspaso: numeroReferencia })
+      .populate('id_perfume')
+      .populate('proveedor')
+      .populate('usuario_registro', 'name_user correo_user rol_user')
+      .populate('validado_por', 'name_user correo_user rol_user')
+      .populate('almacen_salida', 'nombre_almacen ubicacion');
+
+    if (!traspaso) {
+      return res.status(404).json({
+        error: 'Traspaso original no encontrado',
+        message: `No se encontró el traspaso original con número: ${numeroReferencia}`
+      });
+    }
+
+    console.log('✅ Traspaso original encontrado:', traspaso._id);
+
+    // 3. Obtener datos del proveedor de la entrada
+    let proveedorEntradaData = null;
+    if (entrada.proveedor) {
+      try {
+        if (typeof entrada.proveedor === 'object' && entrada.proveedor.toString().match(/^[0-9a-fA-F]{24}$/)) {
+          proveedorEntradaData = await Proveedor.findById(entrada.proveedor);
+        } else if (typeof entrada.proveedor === 'string' && entrada.proveedor.match(/^[0-9a-fA-F]{24}$/)) {
+          proveedorEntradaData = await Proveedor.findById(entrada.proveedor);
+        } else {
+          proveedorEntradaData = await Proveedor.findOne({ nombre_proveedor: entrada.proveedor });
+        }
+      } catch (error) {
+        console.log('⚠️ Error poblando proveedor de entrada:', error.message);
+      }
+    }
+
+    // 4. Realizar validaciones cruzadas específicas para TRASPASOS
+    const validaciones = {
+      perfume_coincide: true,
+      proveedor_coincide: true,
+      cantidad_coincide: true,
+      fecha_coherente: true,
+      almacenes_diferentes: true,
+      estado_traspaso_valido: true,
+      referencia_valida: true,
+      discrepancias: [],
+      advertencias: [],
+      recomendaciones: []
+    };
+
+    console.log('🔍 Iniciando validaciones cruzadas para traspaso...');
+
+    // ========== VALIDACIÓN 1: PERFUME COINCIDE ==========
+    const perfumeTraspaso = traspaso.id_perfume?._id?.toString();
+    const perfumeEntrada = entrada.id_perfume?._id?.toString();
+    
+    console.log('🔍 Validando perfumes:');
+    console.log(`  - Traspaso perfume ID: ${perfumeTraspaso}`);
+    console.log(`  - Entrada perfume ID: ${perfumeEntrada}`);
+    
+    if (perfumeTraspaso !== perfumeEntrada) {
+      validaciones.perfume_coincide = false;
+      validaciones.discrepancias.push({
+        tipo: 'PERFUME_DIFERENTE',
+        categoria: 'CRÍTICO',
+        titulo: '❌ Perfume no coincide',
+        descripcion: `El perfume de la entrada no coincide con el del traspaso original`,
+        detalles: {
+          perfume_traspaso: {
+            id: perfumeTraspaso,
+            nombre: traspaso.id_perfume?.name_per || 'No disponible'
+          },
+          perfume_entrada: {
+            id: perfumeEntrada,
+            nombre: entrada.id_perfume?.name_per || 'No disponible'
+          }
+        },
+        impacto: 'ALTO',
+        razon: 'La entrada debe corresponder exactamente al perfume trasladado',
+        que_hacer: 'CORREGIR PERFUME',
+        acciones_sugeridas: [
+          '1. Verificar el perfume recibido físicamente',
+          '2. Corregir el registro de entrada si es necesario',
+          '3. Si es correcto, verificar el traspaso original',
+          '4. Contactar al almacén de origen para confirmación'
+        ],
+        puede_continuar: false,
+        gravedad: 'ALTA'
+      });
+    } else {
+      validaciones.recomendaciones.push({
+        tipo: 'PERFUME_CORRECTO',
+        mensaje: '✅ Perfume coincide correctamente con el traspaso'
+      });
+    }
+
+    // ========== VALIDACIÓN 2: PROVEEDOR COINCIDE ==========
+    const proveedorTraspaso = traspaso.proveedor?._id?.toString();
+    const proveedorEntrada = proveedorEntradaData?._id?.toString();
+    
+    console.log('🔍 Validando proveedores:');
+    console.log(`  - Traspaso proveedor ID: ${proveedorTraspaso}`);
+    console.log(`  - Entrada proveedor ID: ${proveedorEntrada}`);
+    
+    if (proveedorTraspaso !== proveedorEntrada) {
+      validaciones.proveedor_coincide = false;
+      validaciones.discrepancias.push({
+        tipo: 'PROVEEDOR_DIFERENTE_TRASPASO',
+        categoria: 'CRÍTICO',
+        titulo: '❌ Proveedor no coincide',
+        descripcion: `El proveedor de la entrada no coincide con el del traspaso`,
+        detalles: {
+          proveedor_traspaso: {
+            id: proveedorTraspaso,
+            nombre: traspaso.proveedor?.nombre_proveedor || 'No disponible',
+            rfc: traspaso.proveedor?.rfc || 'N/A'
+          },
+          proveedor_entrada: {
+            id: proveedorEntrada,
+            nombre: proveedorEntradaData?.nombre_proveedor || 'No disponible',
+            rfc: proveedorEntradaData?.rfc || 'N/A'
+          }
+        },
+        impacto: 'ALTO',
+        razon: 'En traspasos el proveedor debe mantenerse consistente',
+        que_hacer: 'CORREGIR PROVEEDOR',
+        acciones_sugeridas: [
+          '1. Verificar el proveedor correcto en documentos',
+          '2. Corregir el registro según corresponda',
+          '3. Validar la trazabilidad del producto',
+          '4. Documentar cualquier cambio de proveedor autorizado'
+        ],
+        puede_continuar: false,
+        gravedad: 'ALTA'
+      });
+    } else {
+      validaciones.recomendaciones.push({
+        tipo: 'PROVEEDOR_CORRECTO',
+        mensaje: '✅ Proveedor coincide correctamente con el traspaso'
+      });
+    }
+
+    // ========== VALIDACIÓN 3: CANTIDAD COINCIDE ==========
+    const cantidadTraspaso = traspaso.cantidad;
+    const cantidadEntrada = entrada.cantidad;
+    
+    console.log('🔍 Validando cantidades:');
+    console.log(`  - Traspaso cantidad: ${cantidadTraspaso}`);
+    console.log(`  - Entrada cantidad: ${cantidadEntrada}`);
+    
+    if (cantidadEntrada !== cantidadTraspaso) {
+      validaciones.cantidad_coincide = false;
+      const diferencia = Math.abs(cantidadEntrada - cantidadTraspaso);
+      const porcentajeDiferencia = (diferencia / cantidadTraspaso) * 100;
+      
+      validaciones.discrepancias.push({
+        tipo: 'CANTIDAD_DIFERENTE_TRASPASO',
+        categoria: 'CRÍTICO',
+        titulo: '❌ Cantidad no coincide',
+        descripcion: `La cantidad recibida difiere de la enviada en el traspaso`,
+        detalles: {
+          cantidad_enviada: cantidadTraspaso,
+          cantidad_recibida: cantidadEntrada,
+          diferencia: diferencia,
+          porcentaje_diferencia: porcentajeDiferencia.toFixed(2) + '%',
+          tipo_diferencia: cantidadEntrada > cantidadTraspaso ? 'EXCESO' : 'FALTANTE'
+        },
+        impacto: 'ALTO',
+        razon: 'En traspasos la cantidad debe ser exacta para mantener control de inventario',
+        que_hacer: 'INVESTIGAR DIFERENCIA',
+        acciones_sugeridas: [
+          '1. Verificar físicamente la mercancía recibida',
+          '2. Revisar documentos de envío del almacén origen',
+          '3. Contactar al almacén de origen para aclaración',
+          '4. Documentar cualquier pérdida o daño en tránsito',
+          '5. Ajustar registros según hallazgos'
+        ],
+        puede_continuar: false,
+        gravedad: 'ALTA'
+      });
+    } else {
+      validaciones.recomendaciones.push({
+        tipo: 'CANTIDAD_EXACTA',
+        mensaje: '✅ Cantidad recibida coincide exactamente con la enviada'
+      });
+    }
+
+    // ========== VALIDACIÓN 4: FECHAS COHERENTES ==========
+    const fechaSalida = new Date(traspaso.fecha_salida);
+    const fechaEntrada = new Date(entrada.fecha_entrada);
+    const diasDiferencia = Math.ceil((fechaEntrada - fechaSalida) / (1000 * 60 * 60 * 24));
+    
+    console.log('🔍 Validando fechas:');
+    console.log(`  - Fecha salida: ${fechaSalida.toISOString()}`);
+    console.log(`  - Fecha entrada: ${fechaEntrada.toISOString()}`);
+    console.log(`  - Días diferencia: ${diasDiferencia}`);
+    
+    if (fechaEntrada < fechaSalida) {
+      validaciones.fecha_coherente = false;
+      validaciones.discrepancias.push({
+        tipo: 'FECHA_ENTRADA_ANTERIOR',
+        categoria: 'CRÍTICO',
+        titulo: '📅 Fecha de entrada inválida',
+        descripcion: `La entrada está fechada antes que la salida del traspaso`,
+        detalles: {
+          fecha_salida: fechaSalida.toLocaleDateString('es-MX'),
+          fecha_entrada: fechaEntrada.toLocaleDateString('es-MX'),
+          dias_diferencia: Math.abs(diasDiferencia)
+        },
+        impacto: 'ALTO',
+        razon: 'Es físicamente imposible recibir antes de enviar',
+        que_hacer: 'CORREGIR FECHA',
+        acciones_sugeridas: [
+          '1. Verificar la fecha real de recepción',
+          '2. Corregir la fecha en el sistema',
+          '3. Si ambas fechas son correctas, investigar la discrepancia',
+          '4. Documentar la explicación de la diferencia temporal'
+        ],
+        puede_continuar: false,
+        gravedad: 'ALTA'
+      });
+    } else if (diasDiferencia > 7) {
+      validaciones.advertencias.push({
+        tipo: 'TRASPASO_TARDÍO',
+        categoria: 'MODERADO',
+        titulo: '⏰ Traspaso tardío detectado',
+        descripcion: `El traspaso tardó ${diasDiferencia} días en completarse`,
+        detalles: {
+          fecha_salida: fechaSalida.toLocaleDateString('es-MX'),
+          fecha_entrada: fechaEntrada.toLocaleDateString('es-MX'),
+          dias_retraso: diasDiferencia,
+          es_tardio: diasDiferencia > 7
+        },
+        impacto: 'MEDIO',
+        razon: 'Posible demora en el proceso de traspaso',
+        que_hacer: 'EVALUAR PROCESO',
+        acciones_sugeridas: [
+          '1. Documentar el retraso en el historial',
+          '2. Evaluar si afectó la calidad del producto',
+          '3. Revisar el proceso de traspaso para mejoras',
+          '4. Considerar ajustes en tiempos estándar'
+        ],
+        puede_continuar: true,
+        gravedad: 'MEDIA'
+      });
+    } else {
+      validaciones.recomendaciones.push({
+        tipo: 'FECHA_APROPIADA',
+        mensaje: `✅ Tiempo de traspaso apropiado (${diasDiferencia} días)`
+      });
+    }
+
+    // ========== VALIDACIÓN 5: ALMACENES DIFERENTES ==========
+    const almacenSalida = traspaso.almacen_salida?._id?.toString();
+    const almacenEntrada = entrada.almacen_entrada?.toString();
+    
+    console.log('🔍 Validando almacenes:');
+    console.log(`  - Almacén salida: ${almacenSalida}`);
+    console.log(`  - Almacén entrada: ${almacenEntrada}`);
+    
+    if (almacenSalida === almacenEntrada) {
+      validaciones.almacenes_diferentes = false;
+      validaciones.discrepancias.push({
+        tipo: 'ALMACENES_IGUALES',
+        categoria: 'CRÍTICO',
+        titulo: '🏢 Almacenes no pueden ser iguales',
+        descripcion: `El almacén de salida y entrada son el mismo`,
+        detalles: {
+          almacen_salida: {
+            id: almacenSalida,
+            nombre: traspaso.almacen_salida?.nombre_almacen || 'No disponible'
+          },
+          almacen_entrada: {
+            id: almacenEntrada,
+            nombre: entrada.almacen_entrada?.nombre_almacen || 'No disponible'
+          }
+        },
+        impacto: 'ALTO',
+        razon: 'Un traspaso requiere almacenes origen y destino diferentes',
+        que_hacer: 'CORREGIR ALMACÉN',
+        acciones_sugeridas: [
+          '1. Verificar el almacén destino correcto',
+          '2. Corregir el registro de entrada o traspaso',
+          '3. Validar que realmente hubo movimiento físico',
+          '4. Si no hubo movimiento, cancelar el traspaso'
+        ],
+        puede_continuar: false,
+        gravedad: 'ALTA'
+      });
+    } else {
+      validaciones.recomendaciones.push({
+        tipo: 'ALMACENES_CORRECTOS',
+        mensaje: '✅ Almacenes origen y destino son diferentes correctamente'
+      });
+    }
+
+    // ========== VALIDACIÓN 6: ESTADO DEL TRASPASO ==========
+    const estadoTraspaso = traspaso.estatus_validacion;
+    
+    console.log('🔍 Validando estado del traspaso:');
+    console.log(`  - Estado actual: ${estadoTraspaso}`);
+    
+    if (estadoTraspaso === 'Rechazado') {
+      validaciones.estado_traspaso_valido = false;
+      validaciones.discrepancias.push({
+        tipo: 'TRASPASO_RECHAZADO',
+        categoria: 'CRÍTICO',
+        titulo: '❌ Traspaso rechazado',
+        descripcion: `El traspaso original fue rechazado`,
+        detalles: {
+          numero_traspaso: traspaso.numero_traspaso,
+          estado_actual: estadoTraspaso,
+          observaciones: traspaso.observaciones_auditor || 'Sin observaciones'
+        },
+        impacto: 'ALTO',
+        razon: 'No se puede procesar entrada de un traspaso rechazado',
+        que_hacer: 'REVISAR TRASPASO',
+        acciones_sugeridas: [
+          '1. Revisar las razones del rechazo del traspaso',
+          '2. Si es un error, reactivar el traspaso',
+          '3. Si es válido el rechazo, devolver mercancía',
+          '4. Documentar la resolución del conflicto'
+        ],
+        puede_continuar: false,
+        gravedad: 'ALTA'
+      });
+    } else if (estadoTraspaso === 'Validado') {
+      validaciones.advertencias.push({
+        tipo: 'TRASPASO_YA_VALIDADO',
+        categoria: 'MODERADO',
+        titulo: '🔄 Traspaso ya validado',
+        descripcion: `Este traspaso ya fue validado anteriormente`,
+        detalles: {
+          numero_traspaso: traspaso.numero_traspaso,
+          fecha_validacion: traspaso.fecha_validacion,
+          validado_por: traspaso.validado_por?.name_user || 'Usuario desconocido'
+        },
+        impacto: 'MEDIO',
+        razon: 'Posible duplicación de procesamiento',
+        que_hacer: 'VERIFICAR DUPLICADO',
+        acciones_sugeridas: [
+          '1. Verificar si esta entrada ya fue procesada',
+          '2. Revisar el historial de validaciones',
+          '3. Confirmar que no es un duplicado',
+          '4. Documentar si es un procesamiento adicional válido'
+        ],
+        puede_continuar: true,
+        gravedad: 'MEDIA'
+      });
+    }
+
+    // 5. Determinar estado general de validación
+    const discrepanciasCriticas = validaciones.discrepancias.filter(d => d.categoria === 'CRÍTICO');
+    const discrepanciasImportantes = validaciones.discrepancias.filter(d => d.categoria === 'IMPORTANTE');
+    const noSePuedeContinuar = validaciones.discrepancias.some(d => !d.puede_continuar);
+    
+    let estadoValidacion, colorEstado, iconoEstado, mensajeAuditor, accionRecomendada;
+    
+    if (discrepanciasCriticas.length > 0 || noSePuedeContinuar) {
+      estadoValidacion = 'RECHAZADA';
+      colorEstado = '#dc3545';
+      iconoEstado = '❌';
+      mensajeAuditor = `Entrada de traspaso RECHAZADA: Se encontraron ${discrepanciasCriticas.length} discrepancias críticas.`;
+      accionRecomendada = 'NO_PROCESAR';
+    } else if (discrepanciasImportantes.length > 0) {
+      estadoValidacion = 'REQUIERE_REVISION_GERENCIAL';
+      colorEstado = '#fd7e14';
+      iconoEstado = '⚠️';
+      mensajeAuditor = `Entrada de traspaso requiere APROBACIÓN GERENCIAL.`;
+      accionRecomendada = 'ESCALAR_GERENCIA';
+    } else if (validaciones.discrepancias.length > 0 || validaciones.advertencias.some(a => a.gravedad === 'MEDIA')) {
+      estadoValidacion = 'CONDICIONAL';
+      colorEstado = '#ffc107';
+      iconoEstado = '⚡';
+      mensajeAuditor = `Entrada de traspaso CONDICIONAL: Puede procesarse con observaciones.`;
+      accionRecomendada = 'PROCESAR_CON_OBSERVACIONES';
+    } else {
+      estadoValidacion = 'APROBADA';
+      colorEstado = '#28a745';
+      iconoEstado = '✅';
+      mensajeAuditor = `Entrada de traspaso APROBADA: Todas las validaciones fueron exitosas.`;
+      accionRecomendada = 'PROCESAR_NORMAL';
+    }
+
+    // Generar resumen ejecutivo
+    const resumenEjecutivo = {
+      estado: estadoValidacion,
+      color: colorEstado,
+      icono: iconoEstado,
+      mensaje_principal: mensajeAuditor,
+      accion_recomendada: accionRecomendada,
+      total_discrepancias: validaciones.discrepancias.length,
+      total_advertencias: validaciones.advertencias.length,
+      puede_procesar: !noSePuedeContinuar,
+      requiere_supervision: discrepanciasCriticas.length > 0 || discrepanciasImportantes.length > 0,
+      puntos_criticos: discrepanciasCriticas.map(d => d.titulo),
+      siguiente_paso: obtenerSiguientepasoTraspaso(estadoValidacion, validaciones),
+      tiempo_estimado_resolucion: estimarTiempoResolucionTraspaso(validaciones),
+      tipo_entrada: 'TRASPASO'
+    };
+
+    // Funciones auxiliares para traspasos
+    function obtenerSiguientepasoTraspaso(estado, validaciones) {
+      switch(estado) {
+        case 'RECHAZADA':
+          return 'Contactar almacén origen y resolver discrepancias del traspaso';
+        case 'REQUIERE_REVISION_GERENCIAL':
+          return 'Elevar a gerencia para aprobación de traspaso con observaciones';
+        case 'CONDICIONAL':
+          return 'Procesar traspaso documentando las observaciones';
+        case 'APROBADA':
+          return 'Procesar entrada de traspaso inmediatamente';
+        default:
+          return 'Revisar validaciones del traspaso nuevamente';
+      }
+    }
+
+    function estimarTiempoResolucionTraspaso(validaciones) {
+      const criticas = validaciones.discrepancias.filter(d => d.categoria === 'CRÍTICO').length;
+      const importantes = validaciones.discrepancias.filter(d => d.categoria === 'IMPORTANTE').length;
+      
+      if (criticas > 0) {
+        return '1-3 días hábiles (requiere coordinación entre almacenes)';
+      } else if (importantes > 0) {
+        return '4-8 horas (requiere aprobación gerencial)';
+      } else if (validaciones.advertencias.length > 0) {
+        return 'Inmediato (solo documentación)';
+      } else {
+        return 'Inmediato (sin restricciones)';
+      }
+    }
+
+    function calcularPorcentajeCumplimientoTraspaso(validaciones) {
+      const validacionesRealizadas = [
+        validaciones.perfume_coincide,
+        validaciones.proveedor_coincide,
+        validaciones.cantidad_coincide,
+        validaciones.fecha_coherente,
+        validaciones.almacenes_diferentes,
+        validaciones.estado_traspaso_valido,
+        validaciones.referencia_valida
+      ];
+      
+      const exitosas = validacionesRealizadas.filter(v => v === true).length;
+      const total = validacionesRealizadas.length;
+      
+      return Math.round((exitosas / total) * 100);
+    }
+
+    function determinarNivelRiesgoTraspaso(validaciones) {
+      const criticas = validaciones.discrepancias.filter(d => d.categoria === 'CRÍTICO').length;
+      const importantes = validaciones.discrepancias.filter(d => d.categoria === 'IMPORTANTE').length;
+      
+      if (criticas > 0) return 'ALTO';
+      if (importantes > 0) return 'MEDIO';
+      if (validaciones.advertencias.length > 2) return 'MEDIO-BAJO';
+      return 'BAJO';
+    }
+
+    // 6. Construir respuesta
+    const respuesta = {
+      message: 'Entrada de traspaso encontrada exitosamente',
+      data: {
+        entrada: {
+          _id: entrada._id,
+          numero_entrada: entrada.numero_entrada,
+          tipo: entrada.tipo,
+          referencia_traspaso: entrada.referencia_traspaso,
+          cantidad: entrada.cantidad,
+          proveedor: proveedorEntradaData ? {
+            _id: proveedorEntradaData._id,
+            nombre_proveedor: proveedorEntradaData.nombre_proveedor,
+            rfc: proveedorEntradaData.rfc,
+            contacto: proveedorEntradaData.contacto,
+            telefono: proveedorEntradaData.telefono,
+            email: proveedorEntradaData.email,
+            direccion: proveedorEntradaData.direccion,
+            estado: proveedorEntradaData.estado
+          } : {
+            valor_original: entrada.proveedor,
+            tipo: typeof entrada.proveedor,
+            mensaje: "Proveedor no encontrado o formato incorrecto"
+          },
+          fecha_entrada: entrada.fecha_entrada,
+          estatus_validacion: entrada.estatus_validacion,
+          observaciones_auditor: entrada.observaciones_auditor,
+          almacen_entrada: entrada.almacen_entrada
+        },
+        traspaso_original: {
+          _id: traspaso._id,
+          numero_traspaso: traspaso.numero_traspaso,
+          cantidad: traspaso.cantidad,
+          fecha_salida: traspaso.fecha_salida,
+          estatus_validacion: traspaso.estatus_validacion,
+          observaciones_auditor: traspaso.observaciones_auditor,
+          almacen_salida: traspaso.almacen_salida
+        },
+        perfume: entrada.id_perfume ? {
+          _id: entrada.id_perfume._id,
+          name_per: entrada.id_perfume.name_per,
+          descripcion_per: entrada.id_perfume.descripcion_per,
+          categoria_per: entrada.id_perfume.categoria_per,
+          precio_venta_per: entrada.id_perfume.precio_venta_per,
+          stock_per: entrada.id_perfume.stock_per,
+          stock_minimo_per: entrada.id_perfume.stock_minimo_per,
+          ubicacion_per: entrada.id_perfume.ubicacion_per,
+          fecha_expiracion: entrada.id_perfume.fecha_expiracion,
+          estado: entrada.id_perfume.estado
+        } : null,
+        proveedor_detalle: traspaso.proveedor ? {
+          _id: traspaso.proveedor._id,
+          nombre_proveedor: traspaso.proveedor.nombre_proveedor,
+          rfc: traspaso.proveedor.rfc,
+          contacto: traspaso.proveedor.contacto,
+          telefono: traspaso.proveedor.telefono,
+          email: traspaso.proveedor.email,
+          direccion: traspaso.proveedor.direccion,
+          estado: traspaso.proveedor.estado
+        } : null,
+        validacion: {
+          // Resumen ejecutivo
+          resumen_ejecutivo: resumenEjecutivo,
+          
+          // Estados individuales de validación
+          estado_general: estadoValidacion,
+          perfume_coincide: validaciones.perfume_coincide,
+          proveedor_coincide: validaciones.proveedor_coincide,
+          cantidad_coincide: validaciones.cantidad_coincide,
+          fecha_coherente: validaciones.fecha_coherente,
+          almacenes_diferentes: validaciones.almacenes_diferentes,
+          estado_traspaso_valido: validaciones.estado_traspaso_valido,
+          referencia_valida: validaciones.referencia_valida,
+          
+          // Contadores
+          total_discrepancias: validaciones.discrepancias.length,
+          total_advertencias: validaciones.advertencias.length,
+          total_recomendaciones: validaciones.recomendaciones.length,
+          
+          // Detalles de discrepancias
+          discrepancias_criticas: validaciones.discrepancias.filter(d => d.categoria === 'CRÍTICO'),
+          discrepancias_importantes: validaciones.discrepancias.filter(d => d.categoria === 'IMPORTANTE'),
+          discrepancias_menores: validaciones.discrepancias.filter(d => d.categoria === 'MENOR'),
+          
+          // Advertencias y recomendaciones
+          advertencias: validaciones.advertencias,
+          recomendaciones: validaciones.recomendaciones,
+          
+          // Información para toma de decisiones
+          puede_procesar_inmediatamente: !noSePuedeContinuar && discrepanciasCriticas.length === 0,
+          requiere_aprobacion_gerencial: discrepanciasImportantes.length > 0,
+          requiere_coordinacion_almacenes: validaciones.discrepancias.some(d => 
+            d.tipo.includes('ALMACEN') || d.tipo.includes('CANTIDAD') || d.tipo.includes('FECHA')
+          ),
+          
+          // Métricas de calidad
+          porcentaje_cumplimiento: calcularPorcentajeCumplimientoTraspaso(validaciones),
+          nivel_riesgo: determinarNivelRiesgoTraspaso(validaciones),
+          
+          // Auditoría
+          validado_en: new Date().toISOString(),
+          validado_por_auditor: req.user.name_user,
+          numero_validaciones_realizadas: Object.keys(validaciones).filter(k => 
+            k.endsWith('_coincide') || k.endsWith('_coherente') || k.endsWith('_diferentes') || 
+            k.endsWith('_valido') || k.endsWith('_valida')
+          ).length
+        }
+      }
+    };
+
+    console.log('🎉 Respuesta de validación de traspaso construida exitosamente');
+    console.log('📊 Estado de validación:', estadoValidacion);
+    console.log('⚠️ Discrepancias críticas:', discrepanciasCriticas.length);
+    console.log('🔍 Discrepancias importantes:', discrepanciasImportantes.length);
+    console.log('📋 Total advertencias:', validaciones.advertencias.length);
+    console.log('✅ Puede procesar:', !noSePuedeContinuar);
+    console.log('🎯 Acción recomendada:', accionRecomendada);
+    console.log('📈 Porcentaje cumplimiento:', calcularPorcentajeCumplimientoTraspaso(validaciones) + '%');
+    console.log('⚡ Nivel de riesgo:', determinarNivelRiesgoTraspaso(validaciones));
+    
+    res.json(respuesta);
+
+  } catch (error) {
+    console.error('❌ Error en búsqueda de entrada de traspaso:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: 'Error al buscar la entrada de traspaso'
+    });
+  }
+};
+
+// Buscar entrada completa (COMPRA o TRASPASO) por número - BÚSQUEDA INTELIGENTE
+const getEntradaCompletaInteligente = async (req, res) => {
+  console.log('🔍 Búsqueda inteligente de entrada iniciada');
+  console.log('📋 Número/Referencia recibido:', req.params.id);
+  
+  try {
+    const { id: numeroEntrada } = req.params;
+    
+    if (!numeroEntrada || numeroEntrada.trim() === '') {
+      return res.status(400).json({
+        error: 'Número de entrada inválido',
+        message: 'El número de entrada no puede estar vacío'
+      });
+    }
+
+    console.log('🔍 Paso 1: Intentando buscar como entrada tipo COMPRA...');
+    
+    // 1. Primero intentar buscar como entrada normal (tipo Compra)
+    let entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
+      .populate('id_perfume')
+      .populate('usuario_registro', 'name_user correo_user rol_user')
+      .populate('validado_por', 'name_user correo_user rol_user')
+      .populate('almacen_origen', 'nombre_almacen ubicacion')
+      .populate('almacen_destino', 'nombre_almacen ubicacion');
+
+    if (entrada && (!entrada.tipo || entrada.tipo === 'Compra')) {
+      console.log('✅ Encontrada como entrada tipo COMPRA - delegando...');
+      // Delegar a la función original para compras
+      req.params.id = numeroEntrada;
+      return await getEntradaCompleta(req, res);
+    }
+
+    console.log('🔄 Paso 2: No encontrada como COMPRA, intentando como TRASPASO...');
+
+    // 2. Si no se encuentra como compra, buscar como traspaso por referencia_traspaso
+    entrada = await Entrada.findOne({ 
+      referencia_traspaso: numeroEntrada,
+      tipo: 'Traspaso'
+    })
+      .populate('id_perfume')
+      .populate('usuario_registro', 'name_user correo_user rol_user')
+      .populate('validado_por', 'name_user correo_user rol_user')
+      .populate('almacen_entrada', 'nombre_almacen ubicacion');
+
+    if (entrada && entrada.tipo === 'Traspaso') {
+      console.log('✅ Encontrada como entrada tipo TRASPASO - delegando...');
+      // Para traspasos, usar la referencia_traspaso, no el numero_entrada
+      const referenciaTraspaso = entrada.referencia_traspaso;
+      console.log(`🔄 Delegando a getEntradaTraspasoCompleta con referencia: ${referenciaTraspaso}`);
+      req.params.id = referenciaTraspaso;
+      return await getEntradaTraspasoCompleta(req, res);
+    }
+
+    console.log('❌ No encontrada ni como COMPRA ni como TRASPASO');
+    
+    // 3. Si no se encuentra en ninguna categoría
+    return res.status(404).json({
+      error: 'Entrada no encontrada',
+      message: `No se encontró una entrada con el número/referencia: ${numeroEntrada}`,
+      detalles: {
+        busqueda_realizada: {
+          por_numero_entrada: true,
+          por_referencia_traspaso: true,
+          valor_buscado: numeroEntrada
+        },
+        sugerencias: [
+          'Verificar que el número/referencia sea correcto',
+          'Confirmar que la entrada esté registrada en el sistema',
+          'Verificar si es una entrada de compra o traspaso'
+        ]
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error en búsqueda inteligente:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
       message: 'Error al buscar la entrada'
     });
   }
@@ -1078,5 +1787,7 @@ const procesarValidacionEntrada = async (req, res) => {
 module.exports = {
   getOrdenCompraCompleta,
   getEntradaCompleta,
+  getEntradaTraspasoCompleta,
+  getEntradaCompletaInteligente,
   procesarValidacionEntrada
 };

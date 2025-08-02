@@ -1,0 +1,16 @@
+{
+  "numero_entrada": "ENT-005",
+  "id_perfume": {"$oid": "6886d59bd62d2a13642d5ff8"}, 
+  "cantidad": 100,
+  "proveedor": {"$oid": "6875a3e0c62104c497d29981"},
+  "fecha_entrada": {"$date": "2025-07-30T00:00:00.000Z"},
+  "usuario_registro": {"$oid": "6887d89d3393bae7f2eb8678"},
+  "tipo": "Traspaso",
+  "referencia_traspaso": "TRAS-001",
+  "estatus_validacion": "Pendiente",
+  "almacen_entrada": {"$oid": "68853aa9481178c98539e81a"},
+  "fecha": {"$date": "2025-07-30T00:00:00.000Z"},
+  "observaciones_auditor": "",
+  "createdAt": {"$date": "2025-08-01T00:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-01T00:00:00.000Z"}
+}

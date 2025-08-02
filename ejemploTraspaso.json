@@ -1,0 +1,12 @@
+{
+    "numero_traspaso": "TRAS-001",
+    "id_perfume": ObjectId("6886d59bd62d2a13642d5ff8"),
+    "cantidad": 100,
+    "proveedor": ObjectId("6875a3e0c62104c497d29981"),
+    "estatus_validacion": "Pendiente",
+    "fecha_salida": ISODate("2025-07-30T00:00:00.000Z"),
+    "usuario_registro": ObjectId("68867bb7b52237cb23f35fbb"),
+    "almacen_salida": ObjectId("66a000000000000000000012")
+    
+    
+  }

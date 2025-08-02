@@ -2,6 +2,8 @@ const express = require('express');
 const { 
   getOrdenCompraCompleta,
   getEntradaCompleta,
+  getEntradaTraspasoCompleta,
+  getEntradaCompletaInteligente,
   procesarValidacionEntrada
 } = require('../../controllers/auditor/auditorController');
 
@@ -19,8 +21,14 @@ router.use(requireAuditor);
 
 // Buscar orden de compra completa por número de orden (con perfume y proveedor)
 router.get('/orden-compra/:id', getOrdenCompraCompleta);
-// GET /api/auditor/entrada/:id
-router.get('/entrada/:id', getEntradaCompleta);
+
+// NUEVA RUTA: Búsqueda inteligente que detecta automáticamente el tipo
+router.get('/entrada-busqueda/:id', getEntradaCompletaInteligente);
+
+// Rutas específicas por tipo
+router.get('/entrada/:id', getEntradaCompleta); // Solo compras
+router.get('/entrada-traspaso/:id', getEntradaTraspasoCompleta); // Solo traspasos
+
 // POST /api/auditor/validar-entrada/:id - Procesar validación de entrada
 router.post('/validar-entrada/:id', procesarValidacionEntrada);
 
