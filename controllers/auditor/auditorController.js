@@ -4,6 +4,7 @@ const Perfume = require('../../models/Perfume');
 const Entrada = require('../../models/Entrada');  
 const Proveedor = require('../../models/Proveedor');
 const Traspaso = require('../../models/Traspaso');
+const Almacen = require('../../models/Almacen');
 const { validationResult } = require('express-validator');
 
 // Buscar orden de compra completa por número de orden
@@ -921,36 +922,96 @@ const getEntradaTraspasoCompleta = async (req, res) => {
       .populate('id_perfume')
       .populate('usuario_registro', 'name_user correo_user rol_user')
       .populate('validado_por', 'name_user correo_user rol_user')
-      .populate('almacen_entrada', 'nombre_almacen ubicacion');
+      .populate('almacen_destino', 'nombre_almacen codigo ubicacion'); // AGREGADO: incluir codigo
+
+    // Si no se encuentra por referencia_traspaso, buscar por numero_entrada
+    if (!entrada) {
+      console.log('🔍 No encontrada por referencia_traspaso, buscando por numero_entrada...');
+      entrada = await Entrada.findOne({ 
+        numero_entrada: numeroReferencia,
+        tipo: 'Traspaso'
+      })
+        .populate('id_perfume')
+        .populate('usuario_registro', 'name_user correo_user rol_user')
+        .populate('validado_por', 'name_user correo_user rol_user')
+        .populate('almacen_destino', 'nombre_almacen codigo ubicacion'); // AGREGADO: incluir codigo
+    }
 
     if (!entrada) {
       return res.status(404).json({
         error: 'Entrada de traspaso no encontrada',
-        message: `No se encontró una entrada de traspaso con referencia: ${numeroReferencia}`
+        message: `No se encontró una entrada de traspaso con referencia/número: ${numeroReferencia}`
       });
     }
 
     console.log('✅ Entrada de traspaso encontrada:', entrada._id);
     console.log('🔍 DEBUG - Tipo de entrada:', entrada.tipo);
     console.log('🔍 DEBUG - Referencia traspaso:', entrada.referencia_traspaso);
+    console.log('🔍 DEBUG - Número entrada:', entrada.numero_entrada);
 
     // 2. Buscar el traspaso original por numero_traspaso
     console.log('🔍 Buscando traspaso original...');
-    const traspaso = await Traspaso.findOne({ numero_traspaso: numeroReferencia })
+    // Usar referencia_traspaso si existe, sino usar numero_entrada
+    const referenciaParaBuscar = entrada.referencia_traspaso || entrada.numero_entrada;
+    console.log(`🔍 Buscando traspaso con: ${referenciaParaBuscar}`);
+    
+    const traspaso = await Traspaso.findOne({ numero_traspaso: referenciaParaBuscar })
       .populate('id_perfume')
       .populate('proveedor')
       .populate('usuario_registro', 'name_user correo_user rol_user')
       .populate('validado_por', 'name_user correo_user rol_user')
-      .populate('almacen_salida', 'nombre_almacen ubicacion');
+      .populate('almacen_salida', 'nombre_almacen codigo ubicacion'); // AGREGADO: incluir codigo
 
     if (!traspaso) {
-      return res.status(404).json({
-        error: 'Traspaso original no encontrado',
-        message: `No se encontró el traspaso original con número: ${numeroReferencia}`
-      });
+      console.log('⚠️ Traspaso original no encontrado, continuando con entrada únicamente...');
+      // Si no encontramos el traspaso, crear una respuesta simplificada
+      const respuesta = {
+        message: 'Entrada de traspaso encontrada (sin traspaso original)',
+        data: {
+          entrada: {
+            _id: entrada._id,
+            numero_entrada: entrada.numero_entrada,
+            tipo: entrada.tipo,
+            referencia_traspaso: entrada.referencia_traspaso,
+            cantidad: entrada.cantidad,
+            fecha_entrada: entrada.fecha_entrada,
+            estatus_validacion: entrada.estatus_validacion,
+            observaciones_auditor: entrada.observaciones_auditor,
+            almacen_destino: entrada.almacen_destino
+          },
+          perfume: entrada.id_perfume ? {
+            _id: entrada.id_perfume._id,
+            name_per: entrada.id_perfume.name_per,
+            descripcion_per: entrada.id_perfume.descripcion_per,
+            categoria_per: entrada.id_perfume.categoria_per,
+            precio_venta_per: entrada.id_perfume.precio_venta_per,
+            stock_per: entrada.id_perfume.stock_per,
+            stock_minimo_per: entrada.id_perfume.stock_minimo_per,
+            ubicacion_per: entrada.id_perfume.ubicacion_per,
+            fecha_expiracion: entrada.id_perfume.fecha_expiracion,
+            estado: entrada.id_perfume.estado
+          } : null,
+          advertencia: {
+            tipo: 'TRASPASO_ORIGINAL_NO_ENCONTRADO',
+            mensaje: 'La entrada existe pero no se encontró el traspaso original correspondiente',
+            sugerencias: [
+              'Verificar si el traspaso existe en el sistema',
+              'Confirmar que la referencia_traspaso sea correcta',
+              'Considerar crear el traspaso retroactivamente'
+            ]
+          }
+        }
+      };
+      
+      return res.json(respuesta);
     }
 
     console.log('✅ Traspaso original encontrado:', traspaso._id);
+
+    // DEBUG: Verificar qué datos de almacenes tenemos
+    console.log('🔍 DEBUG - Almacenes encontrados:');
+    console.log(`  - entrada.almacen_destino:`, entrada.almacen_destino);
+    console.log(`  - traspaso.almacen_salida:`, traspaso.almacen_salida);
 
     // 3. Obtener datos del proveedor de la entrada
     let proveedorEntradaData = null;
@@ -1186,7 +1247,7 @@ const getEntradaTraspasoCompleta = async (req, res) => {
 
     // ========== VALIDACIÓN 5: ALMACENES DIFERENTES ==========
     const almacenSalida = traspaso.almacen_salida?._id?.toString();
-    const almacenEntrada = entrada.almacen_entrada?.toString();
+    const almacenEntrada = entrada.almacen_destino?._id?.toString(); // CORREGIDO: usar _id del almacen_destino poblado
     
     console.log('🔍 Validando almacenes:');
     console.log(`  - Almacén salida: ${almacenSalida}`);
@@ -1206,7 +1267,7 @@ const getEntradaTraspasoCompleta = async (req, res) => {
           },
           almacen_entrada: {
             id: almacenEntrada,
-            nombre: entrada.almacen_entrada?.nombre_almacen || 'No disponible'
+            nombre: entrada.almacen_destino?.nombre_almacen || 'No disponible' // CORREGIDO: usar almacen_destino poblado
           }
         },
         impacto: 'ALTO',
@@ -1418,9 +1479,9 @@ const getEntradaTraspasoCompleta = async (req, res) => {
           fecha_entrada: entrada.fecha_entrada,
           estatus_validacion: entrada.estatus_validacion,
           observaciones_auditor: entrada.observaciones_auditor,
-          almacen_entrada: entrada.almacen_entrada
+          almacen_destino: entrada.almacen_destino // CORREGIDO: usar almacen_destino
         },
-        traspaso_original: {
+        traspaso_original: traspaso ? {
           _id: traspaso._id,
           numero_traspaso: traspaso.numero_traspaso,
           cantidad: traspaso.cantidad,
@@ -1428,7 +1489,7 @@ const getEntradaTraspasoCompleta = async (req, res) => {
           estatus_validacion: traspaso.estatus_validacion,
           observaciones_auditor: traspaso.observaciones_auditor,
           almacen_salida: traspaso.almacen_salida
-        },
+        } : null,
         perfume: entrada.id_perfume ? {
           _id: entrada.id_perfume._id,
           name_per: entrada.id_perfume.name_per,
@@ -1538,6 +1599,7 @@ const getEntradaCompletaInteligente = async (req, res) => {
     }
 
     console.log('🔍 Paso 1: Intentando buscar como entrada tipo COMPRA...');
+    console.log('🔍 DEBUG - Query Compra: { numero_entrada: "' + numeroEntrada + '" }');
     
     // 1. Primero intentar buscar como entrada normal (tipo Compra)
     let entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
@@ -1547,6 +1609,13 @@ const getEntradaCompletaInteligente = async (req, res) => {
       .populate('almacen_origen', 'nombre_almacen ubicacion')
       .populate('almacen_destino', 'nombre_almacen ubicacion');
 
+    console.log('🔍 DEBUG - Resultado Compra:', entrada ? {
+      _id: entrada._id,
+      numero_entrada: entrada.numero_entrada,
+      tipo: entrada.tipo,
+      referencia_traspaso: entrada.referencia_traspaso
+    } : 'null');
+
     if (entrada && (!entrada.tipo || entrada.tipo === 'Compra')) {
       console.log('✅ Encontrada como entrada tipo COMPRA - delegando...');
       // Delegar a la función original para compras
@@ -1555,6 +1624,7 @@ const getEntradaCompletaInteligente = async (req, res) => {
     }
 
     console.log('🔄 Paso 2: No encontrada como COMPRA, intentando como TRASPASO...');
+    console.log('🔍 DEBUG - Query Traspaso: { referencia_traspaso: "' + numeroEntrada + '", tipo: "Traspaso" }');
 
     // 2. Si no se encuentra como compra, buscar como traspaso por referencia_traspaso
     entrada = await Entrada.findOne({ 
@@ -1564,7 +1634,14 @@ const getEntradaCompletaInteligente = async (req, res) => {
       .populate('id_perfume')
       .populate('usuario_registro', 'name_user correo_user rol_user')
       .populate('validado_por', 'name_user correo_user rol_user')
-      .populate('almacen_entrada', 'nombre_almacen ubicacion');
+      .populate('almacen_destino', 'nombre_almacen ubicacion'); // CORREGIDO: usar almacen_destino
+
+    console.log('🔍 DEBUG - Resultado Traspaso:', entrada ? {
+      _id: entrada._id,
+      numero_entrada: entrada.numero_entrada,
+      tipo: entrada.tipo,
+      referencia_traspaso: entrada.referencia_traspaso
+    } : 'null');
 
     if (entrada && entrada.tipo === 'Traspaso') {
       console.log('✅ Encontrada como entrada tipo TRASPASO - delegando...');
@@ -1575,9 +1652,55 @@ const getEntradaCompletaInteligente = async (req, res) => {
       return await getEntradaTraspasoCompleta(req, res);
     }
 
+    // 3. Búsqueda adicional - verificar si existe con numero_entrada pero tipo Traspaso
+    console.log('🔄 Paso 3: Buscando por numero_entrada con tipo Traspaso...');
+    console.log('🔍 DEBUG - Query numero_entrada+Traspaso: { numero_entrada: "' + numeroEntrada + '", tipo: "Traspaso" }');
+    
+    entrada = await Entrada.findOne({ 
+      numero_entrada: numeroEntrada,
+      tipo: 'Traspaso'
+    })
+      .populate('id_perfume')
+      .populate('usuario_registro', 'name_user correo_user rol_user')
+      .populate('validado_por', 'name_user correo_user rol_user')
+      .populate('almacen_destino', 'nombre_almacen ubicacion'); // CORREGIDO: usar almacen_destino
+
+    console.log('🔍 DEBUG - Resultado numero_entrada+Traspaso:', entrada ? {
+      _id: entrada._id,
+      numero_entrada: entrada.numero_entrada,
+      tipo: entrada.tipo,
+      referencia_traspaso: entrada.referencia_traspaso
+    } : 'null');
+
+    if (entrada && entrada.tipo === 'Traspaso') {
+      console.log('✅ Encontrada como Traspaso por numero_entrada');
+      
+      // Si no tiene referencia_traspaso, usar numero_entrada como fallback
+      const referenciaTraspaso = entrada.referencia_traspaso || entrada.numero_entrada;
+      console.log(`🔄 Delegando a getEntradaTraspasoCompleta con referencia: ${referenciaTraspaso}`);
+      req.params.id = referenciaTraspaso;
+      return await getEntradaTraspasoCompleta(req, res);
+    }
+
+    // 4. Búsqueda exhaustiva - mostrar todas las entradas para debugging
+    console.log('🔍 DEBUG - Búsqueda exhaustiva de todas las entradas relacionadas...');
+    const todasLasEntradas = await Entrada.find({
+      $or: [
+        { numero_entrada: numeroEntrada },
+        { referencia_traspaso: numeroEntrada }
+      ]
+    });
+
+    console.log('🔍 DEBUG - Todas las entradas encontradas:', todasLasEntradas.map(e => ({
+      _id: e._id,
+      numero_entrada: e.numero_entrada,
+      tipo: e.tipo,
+      referencia_traspaso: e.referencia_traspaso
+    })));
+
     console.log('❌ No encontrada ni como COMPRA ni como TRASPASO');
     
-    // 3. Si no se encuentra en ninguna categoría
+    // 5. Si no se encuentra en ninguna categoría
     return res.status(404).json({
       error: 'Entrada no encontrada',
       message: `No se encontró una entrada con el número/referencia: ${numeroEntrada}`,
@@ -1585,8 +1708,14 @@ const getEntradaCompletaInteligente = async (req, res) => {
         busqueda_realizada: {
           por_numero_entrada: true,
           por_referencia_traspaso: true,
+          por_numero_entrada_traspaso: true,
           valor_buscado: numeroEntrada
         },
+        entradas_encontradas: todasLasEntradas.map(e => ({
+          numero_entrada: e.numero_entrada,
+          tipo: e.tipo,
+          referencia_traspaso: e.referencia_traspaso
+        })),
         sugerencias: [
           'Verificar que el número/referencia sea correcto',
           'Confirmar que la entrada esté registrada en el sistema',
@@ -1629,7 +1758,8 @@ const procesarValidacionEntrada = async (req, res) => {
     console.log('🔍 Buscando entrada...');
     const entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
       .populate('id_perfume')
-      .populate('proveedor');
+      .populate('proveedor')
+      .populate('almacen_destino');
 
     if (!entrada) {
       return res.status(404).json({
@@ -1638,142 +1768,16 @@ const procesarValidacionEntrada = async (req, res) => {
       });
     }
 
-    // 2. Buscar la orden de compra relacionada por el mismo perfume y proveedor
-    console.log('🔍 Buscando orden de compra relacionada...');
-    
-    // Primero obtener datos del proveedor si es necesario
-    let proveedorData = null;
-    if (entrada.proveedor) {
-      if (typeof entrada.proveedor === 'string') {
-        proveedorData = await Proveedor.findOne({ nombre_proveedor: entrada.proveedor });
-      } else {
-        proveedorData = entrada.proveedor;
-      }
+    // 2. Determinar el tipo de entrada
+    const tipoEntrada = entrada.tipo || (entrada.referencia_traspaso ? 'Traspaso' : 'Compra');
+    console.log('🎯 Tipo de entrada detectado:', tipoEntrada);
+
+    // 3. Procesar según el tipo de entrada
+    if (tipoEntrada === 'Traspaso') {
+      return await procesarValidacionTraspaso(entrada, req, res);
+    } else {
+      return await procesarValidacionCompra(entrada, req, res);
     }
-
-    if (!proveedorData) {
-      return res.status(404).json({
-        error: 'Proveedor no encontrado',
-        message: 'No se pudo determinar el proveedor de esta entrada'
-      });
-    }
-
-    // Buscar orden de compra que tenga el mismo perfume y proveedor
-    const ordenesCompra = await OrdenCompra.find({ 
-      id_perfume: entrada.id_perfume._id 
-    }).populate('id_perfume').populate('proveedor');
-
-    const ordenCompra = ordenesCompra.find(orden => {
-      return orden.proveedor?._id?.toString() === proveedorData._id.toString();
-    });
-
-    if (!ordenCompra) {
-      return res.status(404).json({
-        error: 'Orden de compra no encontrada',
-        message: `No se encontró una orden de compra relacionada para el perfume ${entrada.id_perfume.name_per} y proveedor ${proveedorData.nombre_proveedor}`
-      });
-    }
-
-    // 3. Verificar que la orden no esté ya completada
-    if (ordenCompra.estado === 'Completada') {
-      return res.status(400).json({
-        error: 'Orden ya procesada',
-        message: 'Esta orden de compra ya ha sido completada anteriormente'
-      });
-    }
-
-    // 4. Actualizar el estado de la orden de compra a "Completada"
-    console.log('📝 Actualizando estado de orden de compra...');
-    ordenCompra.estado = 'Completada';
-    ordenCompra.observaciones = `Validada por auditor ${req.user.name_user} el ${new Date().toISOString()}`;
-    await ordenCompra.save();
-
-    // 5. Actualizar el stock del perfume
-    console.log('📦 Actualizando stock del perfume...');
-    const perfume = entrada.id_perfume;
-    
-    if (!perfume) {
-      return res.status(404).json({
-        error: 'Perfume no encontrado',
-        message: 'El perfume asociado a esta entrada no existe'
-      });
-    }
-
-    // Agregar la cantidad de la entrada al stock actual
-    const stockAnterior = perfume.stock_per;
-    perfume.stock_per += entrada.cantidad;
-    await perfume.save();
-
-    // 6. Actualizar el estatus de validación de la entrada
-    console.log('✅ Actualizando estatus de validación...');
-    entrada.estatus_validacion = 'validado';
-    entrada.fecha_validacion = new Date();
-    entrada.validado_por = req.user._id;
-    entrada.observaciones_auditor = `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
-    await entrada.save();
-
-    // 7. Obtener información completa del auditor
-    console.log('🔍 Obteniendo información completa del auditor...');
-    const auditorCompleto = await User.findById(req.user._id);
-    console.log('👤 Auditor completo encontrado:', {
-      id: auditorCompleto?._id,
-      nombre: auditorCompleto?.name_user,
-      apellido: auditorCompleto?.apellido_user,
-      email: auditorCompleto?.email_user,
-      rol: auditorCompleto?.rol_user
-    });
-
-    // 8. Respuesta exitosa con detalles de las actualizaciones
-    const respuesta = {
-      success: true,
-      message: 'Entrada validada y procesada exitosamente',
-      data: {
-        entrada: {
-          numero_entrada: entrada.numero_entrada,
-          cantidad: entrada.cantidad,
-          estatus_anterior: 'registrado',
-          estatus_nuevo: entrada.estatus_validacion,
-          fecha_validacion: entrada.fecha_validacion,
-          observaciones: entrada.observaciones_auditor
-        },
-        orden_compra: {
-          numero_orden: ordenCompra.n_orden_compra,
-          estado_anterior: 'Pendiente',
-          estado_nuevo: ordenCompra.estado,
-          observaciones: ordenCompra.observaciones
-        },
-        perfume: {
-          id: perfume._id,
-          nombre: perfume.name_per,
-          stock_anterior: stockAnterior,
-          stock_nuevo: perfume.stock_per,
-          cantidad_agregada: entrada.cantidad
-        },
-        auditor: {
-          id: auditorCompleto?._id || req.user._id,
-          nombre: auditorCompleto?.name_user || req.user.name_user || req.user.name || 'Usuario',
-          apellido: auditorCompleto?.apellido_user || 'No disponible',
-          email: auditorCompleto?.email_user || 'No disponible',
-          rol: auditorCompleto?.rol_user || req.user.rol_user || req.user.role || 'Auditor',
-          fecha_validacion: new Date(),
-          fecha_validacion_formateada: new Date().toLocaleString('es-MX', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })
-        }
-      }
-    };
-
-    console.log('🎉 Validación procesada exitosamente');
-    console.log('📊 Stock actualizado:', `${stockAnterior} → ${perfume.stock_per}`);
-    console.log('📋 Orden completada:', ordenCompra.n_orden_compra);
-    console.log('👤 Auditor:', auditorCompleto?.name_user || req.user.name || 'Usuario');
-    
-    res.json(respuesta);
 
   } catch (error) {
     console.error('❌ Error en procesamiento de validación:', error);
@@ -1782,6 +1786,261 @@ const procesarValidacionEntrada = async (req, res) => {
       message: 'Error al procesar la validación de entrada'
     });
   }
+};
+
+// Función auxiliar para validar entradas de COMPRA
+const procesarValidacionCompra = async (entrada, req, res) => {
+  console.log('💰 Procesando validación de COMPRA...');
+
+  // Buscar la orden de compra relacionada por el mismo perfume y proveedor
+  console.log('🔍 Buscando orden de compra relacionada...');
+  
+  // Obtener datos del proveedor si es necesario
+  let proveedorData = null;
+  if (entrada.proveedor) {
+    if (typeof entrada.proveedor === 'string') {
+      proveedorData = await Proveedor.findOne({ nombre_proveedor: entrada.proveedor });
+    } else {
+      proveedorData = entrada.proveedor;
+    }
+  }
+
+  if (!proveedorData) {
+    return res.status(404).json({
+      error: 'Proveedor no encontrado',
+      message: 'No se pudo determinar el proveedor de esta entrada'
+    });
+  }
+
+  // Buscar orden de compra que tenga el mismo perfume y proveedor
+  const ordenesCompra = await OrdenCompra.find({ 
+    id_perfume: entrada.id_perfume._id 
+  }).populate('id_perfume').populate('proveedor');
+
+  const ordenCompra = ordenesCompra.find(orden => {
+    return orden.proveedor?._id?.toString() === proveedorData._id.toString();
+  });
+
+  if (!ordenCompra) {
+    return res.status(404).json({
+      error: 'Orden de compra no encontrada',
+      message: `No se encontró una orden de compra relacionada para el perfume ${entrada.id_perfume.name_per} y proveedor ${proveedorData.nombre_proveedor}`
+    });
+  }
+
+  // Verificar que la orden no esté ya completada
+  if (ordenCompra.estado === 'Completada') {
+    return res.status(400).json({
+      error: 'Orden ya procesada',
+      message: 'Esta orden de compra ya ha sido completada anteriormente'
+    });
+  }
+
+  // Actualizar el estado de la orden de compra a "Completada"
+  console.log('📝 Actualizando estado de orden de compra...');
+  ordenCompra.estado = 'Completada';
+  ordenCompra.observaciones = `Validada por auditor ${req.user.name_user} el ${new Date().toISOString()}`;
+  await ordenCompra.save();
+
+  // Actualizar el stock del perfume
+  console.log('📦 Actualizando stock del perfume...');
+  const perfume = entrada.id_perfume;
+  
+  if (!perfume) {
+    return res.status(404).json({
+      error: 'Perfume no encontrado',
+      message: 'El perfume asociado a esta entrada no existe'
+    });
+  }
+
+  // Agregar la cantidad de la entrada al stock actual
+  const stockAnterior = perfume.stock_per;
+  perfume.stock_per += entrada.cantidad;
+  await perfume.save();
+
+  // Actualizar el estatus de validación de la entrada
+  console.log('✅ Actualizando estatus de validación...');
+  entrada.estatus_validacion = 'validado';
+  entrada.fecha_validacion = new Date();
+  entrada.validado_por = req.user._id;
+  entrada.observaciones_auditor = `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
+  await entrada.save();
+
+  // Obtener información completa del auditor
+  console.log('🔍 Obteniendo información completa del auditor...');
+  const auditorCompleto = await User.findById(req.user._id);
+
+  // Respuesta exitosa con detalles de las actualizaciones
+  const respuesta = {
+    success: true,
+    message: 'Entrada de COMPRA validada y procesada exitosamente',
+    data: {
+      entrada: {
+        numero_entrada: entrada.numero_entrada,
+        cantidad: entrada.cantidad,
+        estatus_anterior: 'registrado',
+        estatus_nuevo: entrada.estatus_validacion,
+        fecha_validacion: entrada.fecha_validacion,
+        observaciones: entrada.observaciones_auditor
+      },
+      orden_compra: {
+        numero_orden: ordenCompra.n_orden_compra,
+        estado_anterior: 'Pendiente',
+        estado_nuevo: ordenCompra.estado,
+        observaciones: ordenCompra.observaciones
+      },
+      perfume: {
+        id: perfume._id,
+        nombre: perfume.name_per,
+        stock_anterior: stockAnterior,
+        stock_nuevo: perfume.stock_per,
+        cantidad_agregada: entrada.cantidad
+      },
+      auditor: {
+        id: auditorCompleto?._id || req.user._id,
+        nombre: auditorCompleto?.name_user || req.user.name_user || req.user.name || 'Usuario',
+        apellido: auditorCompleto?.apellido_user || 'No disponible',
+        email: auditorCompleto?.email_user || 'No disponible',
+        rol: auditorCompleto?.rol_user || req.user.rol_user || req.user.role || 'Auditor',
+        fecha_validacion: new Date(),
+        fecha_validacion_formateada: new Date().toLocaleString('es-MX', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
+      }
+    }
+  };
+
+  console.log('🎉 Validación de COMPRA procesada exitosamente');
+  console.log('📊 Stock actualizado:', `${stockAnterior} → ${perfume.stock_per}`);
+  console.log('📋 Orden completada:', ordenCompra.n_orden_compra);
+  
+  res.json(respuesta);
+};
+
+// Función auxiliar para validar entradas de TRASPASO
+const procesarValidacionTraspaso = async (entrada, req, res) => {
+  console.log('� Procesando validación de TRASPASO...');
+
+  // Buscar el traspaso original usando la referencia
+  console.log('🔍 Buscando traspaso original...');
+  const traspaso = await Traspaso.findOne({ 
+    numero_traspaso: entrada.referencia_traspaso 
+  })
+    .populate('id_perfume')
+    .populate('almacen_salida', 'codigo ubicacion nombre_almacen');
+
+  if (!traspaso) {
+    return res.status(404).json({
+      error: 'Traspaso original no encontrado',
+      message: `No se encontró el traspaso ${entrada.referencia_traspaso} referenciado en esta entrada`
+    });
+  }
+
+  // Verificar que el traspaso no esté ya completado
+  if (traspaso.estatus_validacion === 'Validado') {
+    return res.status(400).json({
+      error: 'Traspaso ya procesado',
+      message: 'Este traspaso ya ha sido validado anteriormente'
+    });
+  }
+
+  // Actualizar el estado del traspaso a "Validado"
+  console.log('📝 Actualizando estado del traspaso...');
+  const estadoAnteriorTraspaso = traspaso.estatus_validacion;
+  traspaso.estatus_validacion = 'Validado';
+  traspaso.fecha_validacion = new Date();
+  traspaso.validado_por = req.user._id;
+  traspaso.observaciones_auditor = `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
+  await traspaso.save();
+
+  // Actualizar el stock del perfume en el almacén destino
+  console.log('📦 Actualizando stock del perfume...');
+  const perfume = entrada.id_perfume;
+  
+  if (!perfume) {
+    return res.status(404).json({
+      error: 'Perfume no encontrado',
+      message: 'El perfume asociado a esta entrada no existe'
+    });
+  }
+
+  // Agregar la cantidad de la entrada al stock actual
+  const stockAnterior = perfume.stock_per;
+  perfume.stock_per += entrada.cantidad;
+  await perfume.save();
+
+  // Actualizar el estatus de validación de la entrada
+  console.log('✅ Actualizando estatus de validación de la entrada...');
+  entrada.estatus_validacion = 'validado';
+  entrada.fecha_validacion = new Date();
+  entrada.validado_por = req.user._id;
+  entrada.observaciones_auditor = `Entrada de traspaso validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
+  await entrada.save();
+
+  // Obtener información completa del auditor
+  console.log('🔍 Obteniendo información completa del auditor...');
+  const auditorCompleto = await User.findById(req.user._id);
+
+  // Respuesta exitosa con detalles de las actualizaciones
+  const respuesta = {
+    success: true,
+    message: 'Entrada de TRASPASO validada y procesada exitosamente',
+    data: {
+      entrada: {
+        numero_entrada: entrada.numero_entrada,
+        cantidad: entrada.cantidad,
+        estatus_anterior: 'registrado',
+        estatus_nuevo: entrada.estatus_validacion,
+        fecha_validacion: entrada.fecha_validacion,
+        observaciones: entrada.observaciones_auditor,
+        referencia_traspaso: entrada.referencia_traspaso
+      },
+      traspaso: {
+        numero_traspaso: traspaso.numero_traspaso,
+        estado_anterior: estadoAnteriorTraspaso,
+        estado_nuevo: traspaso.estatus_validacion,
+        fecha_salida: traspaso.fecha_salida,
+        almacen_origen: traspaso.almacen_salida?.codigo || 'No disponible',
+        almacen_destino: entrada.almacen_destino?.codigo || 'No disponible',
+        observaciones: traspaso.observaciones_auditor
+      },
+      perfume: {
+        id: perfume._id,
+        nombre: perfume.name_per,
+        stock_anterior: stockAnterior,
+        stock_nuevo: perfume.stock_per,
+        cantidad_agregada: entrada.cantidad
+      },
+      auditor: {
+        id: auditorCompleto?._id || req.user._id,
+        nombre: auditorCompleto?.name_user || req.user.name_user || req.user.name || 'Usuario',
+        apellido: auditorCompleto?.apellido_user || 'No disponible',
+        email: auditorCompleto?.email_user || 'No disponible',
+        rol: auditorCompleto?.rol_user || req.user.rol_user || req.user.role || 'Auditor',
+        fecha_validacion: new Date(),
+        fecha_validacion_formateada: new Date().toLocaleString('es-MX', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
+      }
+    }
+  };
+
+  console.log('🎉 Validación de TRASPASO procesada exitosamente');
+  console.log('📊 Stock actualizado:', `${stockAnterior} → ${perfume.stock_per}`);
+  console.log('🔄 Traspaso validado:', traspaso.numero_traspaso);
+  console.log('📋 Almacenes:', `${traspaso.almacen_salida?.codigo || 'N/A'} → ${entrada.almacen_destino?.codigo || 'N/A'}`);
+  
+  res.json(respuesta);
 };
 
 module.exports = {
