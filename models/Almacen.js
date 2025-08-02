@@ -6,9 +6,25 @@ const almacenSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  codigo: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true
+  },
   ubicacion: {
     type: String,
     required: true,
+    trim: true
+  },
+  direccion: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  telefono: {
+    type: String,
+    default: '',
     trim: true
   },
   estado: {
@@ -33,7 +49,10 @@ almacenSchema.methods.toPublicJSON = function() {
   return {
     _id: almacen._id,
     nombre_almacen: almacen.nombre_almacen,
+    codigo: almacen.codigo,
     ubicacion: almacen.ubicacion,
+    direccion: almacen.direccion,
+    telefono: almacen.telefono,
     estado: almacen.estado,
     descripcion: almacen.descripcion,
     createdAt: almacen.createdAt,

@@ -56,6 +56,11 @@ const entradaSchema = new mongoose.Schema({
     enum: ['Compra', 'Traspaso'],
     default: 'Compra'
   },
+  referencia_traspaso: {
+    type: String,
+    default: null,
+    trim: true
+  },
   fecha: {
     type: Date,
     required: true
@@ -87,6 +92,7 @@ entradaSchema.methods.toPublicJSON = function() {
     estatus_validacion: entrada.estatus_validacion,
     observaciones_auditor: entrada.observaciones_auditor,
     tipo: entrada.tipo,
+    referencia_traspaso: entrada.referencia_traspaso,
     fecha: entrada.fecha,
     fecha_validacion: entrada.fecha_validacion,
     createdAt: entrada.createdAt,

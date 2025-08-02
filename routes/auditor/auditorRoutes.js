@@ -4,7 +4,8 @@ const {
   getEntradaCompleta,
   getEntradaTraspasoCompleta,
   getEntradaCompletaInteligente,
-  procesarValidacionEntrada
+  procesarValidacionEntrada,
+  rechazarEntrada
 } = require('../../controllers/auditor/auditorController');
 
 const { authMiddleware } = require('../../middleware/auth');
@@ -31,6 +32,9 @@ router.get('/entrada-traspaso/:id', getEntradaTraspasoCompleta); // Solo traspas
 
 // POST /api/auditor/validar-entrada/:id - Procesar validación de entrada
 router.post('/validar-entrada/:id', procesarValidacionEntrada);
+
+// POST /api/auditor/rechazar-entrada/:numeroEntrada - Rechazar entrada y orden/traspaso relacionado
+router.post('/rechazar-entrada/:numeroEntrada', rechazarEntrada);
 
 
 module.exports = router;
