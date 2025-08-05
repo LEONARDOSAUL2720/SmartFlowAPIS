@@ -36,5 +36,9 @@ router.post('/validar-entrada/:id', procesarValidacionEntrada);
 // POST /api/auditor/rechazar-entrada/:numeroEntrada - Rechazar entrada y orden/traspaso relacionado
 router.post('/rechazar-entrada/:numeroEntrada', rechazarEntrada);
 
+// Rutas de perfumes 
+const perfumesRoutes = require('./perfumesRoutes');
+router.use('/perfumes', perfumesRoutes);
+
 
 module.exports = router;
