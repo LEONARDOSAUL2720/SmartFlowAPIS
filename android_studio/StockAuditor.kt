@@ -83,6 +83,9 @@ class StockAuditor : AppCompatActivity() {
         rvPerfumes.apply {
             layoutManager = LinearLayoutManager(this@StockAuditor)
             adapter = perfumesAdapter
+            // Optimizaciones para CoordinatorLayout
+            isNestedScrollingEnabled = false
+            setHasFixedSize(true)
         }
     }
 

@@ -5,7 +5,8 @@ const {
   getEntradaTraspasoCompleta,
   getEntradaCompletaInteligente,
   procesarValidacionEntrada,
-  rechazarEntrada
+  rechazarEntrada,
+  obtenerTodasLasEntradas
 } = require('../../controllers/auditor/auditorController');
 
 const { authMiddleware } = require('../../middleware/auth');
@@ -22,6 +23,9 @@ router.use(requireAuditor);
 
 // Buscar orden de compra completa por número de orden (con perfume y proveedor)
 router.get('/orden-compra/:id', getOrdenCompraCompleta);
+
+// GET /api/auditor/entradas - Obtener todas las entradas con paginación
+router.get('/entradas', obtenerTodasLasEntradas);
 
 // NUEVA RUTA: Búsqueda inteligente que detecta automáticamente el tipo
 router.get('/entrada-busqueda/:id', getEntradaCompletaInteligente);

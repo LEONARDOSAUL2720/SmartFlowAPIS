@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../../models/User');
 const OrdenCompra = require('../../models/OrdenCompra');
 const Perfume = require('../../models/Perfume');
@@ -2329,11 +2330,366 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
   }
 };
 
+// Obtener todas las entradas con paginación y filtros
+const obtenerTodasLasEntradas = async (req, res) => {
+  console.log('📋 Obteniendo todas las entradas...');
+  console.log('👤 Usuario autenticado:', {
+    id: req.user?._id,
+    name: req.user?.name_user,
+    role: req.user?.rol_user
+  });
+
+  try {
+    // Parámetros de paginación y filtros
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Parámetros de filtro opcionales
+    const { tipo, estatus, busqueda } = req.query;
+
+    // Construir filtro de búsqueda
+    let filtro = {};
+
+    // Filtro por tipo (compra o traspaso)
+    if (tipo) {
+      if (tipo.toLowerCase() === 'traspaso') {
+        filtro.referencia_traspaso = { $exists: true, $ne: null, $ne: '' };
+      } else if (tipo.toLowerCase() === 'compra') {
+        filtro.referencia_traspaso = { $exists: false };
+      }
+    }
+
+    // Filtro por estatus
+    if (estatus) {
+      filtro.estatus_validacion = new RegExp(estatus, 'i');
+    }
+
+    // Filtro por búsqueda (número de entrada, proveedor)
+    if (busqueda) {
+      filtro.$or = [
+        { numero_entrada: new RegExp(busqueda, 'i') },
+        { 'proveedor.nombre_proveedor': new RegExp(busqueda, 'i') }
+      ];
+    }
+
+    console.log('🔍 Filtro aplicado:', filtro);
+
+    // Obtener entradas con populate - manejo especial para almacen_destino
+    let entradas = await Entrada.find(filtro)
+      .populate({
+        path: 'id_perfume',
+        select: 'name_per descripcion_per categoria_per precio_venta_per stock_per estado'
+      })
+      .populate({
+        path: 'proveedor',
+        select: 'nombre_proveedor rfc contacto telefono email estado'
+      })
+      .sort({ fecha_entrada: -1 }) // Más recientes primero
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    console.log(`🔍 Entradas encontradas en BD: ${entradas.length}`);
+    console.log('📋 Números de entrada encontrados:', entradas.map(e => e.numero_entrada));
+
+    // Poblar almacen_destino manualmente para manejar casos donde puede ser string o ObjectId
+    for (let entrada of entradas) {
+      console.log(`🔍 Procesando entrada ${entrada.numero_entrada}:`);
+      console.log(`  - almacen_destino original:`, entrada.almacen_destino);
+      console.log(`  - tipo almacen_destino:`, typeof entrada.almacen_destino);
+      console.log(`  - proveedor original:`, entrada.proveedor);
+      console.log(`  - tipo de proveedor:`, typeof entrada.proveedor);
+      
+      if (entrada.almacen_destino) {
+        try {
+          let almacen = null;
+          // Si es un ObjectId válido, usar populate normal
+          if (mongoose.Types.ObjectId.isValid(entrada.almacen_destino)) {
+            console.log(`  - Es ObjectId válido, buscando por _id...`);
+            almacen = await Almacen.findById(entrada.almacen_destino)
+              .select('codigo nombre_almacen ubicacion')
+              .lean();
+          } else {
+            console.log(`  - Es string, buscando por código...`);
+            // Si es un string (código), buscar por código
+            almacen = await Almacen.findOne({ codigo: entrada.almacen_destino })
+              .select('codigo nombre_almacen ubicacion')
+              .lean();
+          }
+          console.log(`  - Almacén encontrado:`, almacen ? almacen.codigo : 'null');
+          entrada.almacen_destino = almacen;
+        } catch (error) {
+          console.log(`⚠️ Error poblando almacén para entrada ${entrada.numero_entrada}:`, error.message);
+          entrada.almacen_destino = null;
+        }
+      } else {
+        console.log(`  - Sin almacen_destino`);
+      }
+      
+      // DEBUG: Verificar estado del proveedor después del populate inicial
+      console.log(`  - proveedor después del populate:`, entrada.proveedor);
+      console.log(`  - proveedor es null/undefined:`, entrada.proveedor == null);
+      
+      // Poblar proveedor manualmente si no se pobló correctamente o está como ObjectId sin expandir
+      if (!entrada.proveedor || (entrada.proveedor && typeof entrada.proveedor === 'object' && !entrada.proveedor.nombre_proveedor)) {
+        console.log(`  - Intentando poblar proveedor manualmente...`);
+        // Buscar proveedor en la entrada original (antes del populate)
+        const entradaOriginal = await Entrada.findById(entrada._id).lean();
+        console.log(`  - proveedor en BD original:`, entradaOriginal.proveedor);
+        
+        if (entradaOriginal.proveedor) {
+          try {
+            let proveedorData = null;
+            if (mongoose.Types.ObjectId.isValid(entradaOriginal.proveedor)) {
+              console.log(`  - Proveedor es ObjectId, buscando por _id...`);
+              proveedorData = await Proveedor.findById(entradaOriginal.proveedor)
+                .select('nombre_proveedor rfc contacto telefono email estado')
+                .lean();
+            } else if (typeof entradaOriginal.proveedor === 'string') {
+              console.log(`  - Proveedor es string, buscando por nombre...`);
+              proveedorData = await Proveedor.findOne({ nombre_proveedor: entradaOriginal.proveedor })
+                .select('nombre_proveedor rfc contacto telefono email estado')
+                .lean();
+            }
+            console.log(`  - Proveedor encontrado manualmente:`, proveedorData ? proveedorData.nombre_proveedor : 'null');
+            entrada.proveedor = proveedorData;
+          } catch (error) {
+            console.log(`⚠️ Error poblando proveedor manualmente para entrada ${entrada.numero_entrada}:`, error.message);
+            entrada.proveedor = null;
+          }
+        }
+      } else {
+        console.log(`  - Proveedor ya poblado correctamente:`, entrada.proveedor?.nombre_proveedor || 'SIN NOMBRE');
+      }
+    }
+
+    // Obtener total para paginación
+    const total = await Entrada.countDocuments(filtro);
+
+    // Procesar entradas para determinar el tipo y agregar información adicional
+    console.log(`🔄 Procesando ${entradas.length} entradas...`);
+    const entradasProcesadas = await Promise.all(entradas.map(async (entrada, index) => {
+      try {
+        console.log(`🔄 Procesando entrada ${index + 1}/${entradas.length}: ${entrada.numero_entrada}`);
+        
+        const tipoEntrada = entrada.referencia_traspaso ? 'Traspaso' : 'Compra';
+        console.log(`  - Tipo detectado: ${tipoEntrada}`);
+        
+        // Información adicional según el tipo
+        let informacionAdicional = null;
+
+        if (tipoEntrada === 'Traspaso') {
+          console.log(`  - Buscando traspaso original para referencia: ${entrada.referencia_traspaso}`);
+          // Buscar traspaso original por referencia
+          try {
+            const traspaso = await Traspaso.findOne({
+              numero_traspaso: entrada.referencia_traspaso
+            })
+            .populate('almacen_salida', 'codigo nombre_almacen')
+            .lean();
+
+            console.log(`  - Traspaso encontrado:`, traspaso ? 'SÍ' : 'NO');
+            
+            informacionAdicional = {
+              numero_referencia: entrada.referencia_traspaso,
+              almacen_origen: traspaso?.almacen_salida || null,
+              fecha_salida: traspaso?.fecha_salida || null,
+              estatus_traspaso: traspaso?.estatus_validacion || 'No encontrado'
+            };
+          } catch (error) {
+            console.log(`⚠️ Error obteniendo traspaso para ${entrada.referencia_traspaso}:`, error.message);
+            informacionAdicional = {
+              numero_referencia: entrada.referencia_traspaso,
+              almacen_origen: null,
+              fecha_salida: null,
+              estatus_traspaso: 'Error al obtener datos'
+            };
+          }
+        } else {
+          console.log(`  - Buscando orden de compra para perfume: ${entrada.id_perfume?._id}`);
+          // Buscar orden de compra relacionada
+          try {
+            const ordenCompra = await OrdenCompra.findOne({
+              id_perfume: entrada.id_perfume?._id, // CORREGIDO: usar id_perfume en lugar de perfume_id
+              'proveedor.nombre_proveedor': entrada.proveedor?.nombre_proveedor
+            })
+            .select('n_orden_compra estado fecha_orden precio_unitario precio_total')
+            .lean();
+
+            console.log(`  - Orden de compra encontrada:`, ordenCompra ? 'SÍ' : 'NO');
+
+            informacionAdicional = {
+              numero_orden: ordenCompra?.n_orden_compra || 'No encontrada',
+              estatus_orden: ordenCompra?.estado || 'No encontrada',
+              fecha_orden: ordenCompra?.fecha_orden || null,
+              precio_unitario: ordenCompra?.precio_unitario || 0,
+              precio_total: ordenCompra?.precio_total || 0
+            };
+          } catch (error) {
+            console.log(`⚠️ Error obteniendo orden de compra para entrada ${entrada.numero_entrada}:`, error.message);
+            informacionAdicional = {
+              numero_orden: 'Error al obtener datos',
+              estatus_orden: 'Error',
+              fecha_orden: null,
+              precio_unitario: 0,
+              precio_total: 0
+            };
+          }
+        }
+
+        const resultado = {
+          _id: entrada._id,
+          numero_entrada: entrada.numero_entrada,
+          tipo: tipoEntrada,
+          cantidad: entrada.cantidad,
+          fecha_entrada: entrada.fecha_entrada,
+          estatus_validacion: entrada.estatus_validacion,
+          observaciones_auditor: entrada.observaciones_auditor,
+          motivo_rechazo: entrada.motivo_rechazo,
+          perfume: entrada.id_perfume || null,
+          proveedor: entrada.proveedor || null,
+          almacen_destino: entrada.almacen_destino || null,
+          informacion_adicional: informacionAdicional,
+          fecha_validacion: entrada.fecha_validacion,
+          fecha_rechazo: entrada.fecha_rechazo
+        };
+        
+        console.log(`  ✅ Entrada ${entrada.numero_entrada} procesada exitosamente`);
+        return resultado;
+        
+      } catch (error) {
+        console.error(`❌ Error procesando entrada ${entrada.numero_entrada}:`, error);
+        // Devolver entrada básica aunque falle el procesamiento
+        return {
+          _id: entrada._id,
+          numero_entrada: entrada.numero_entrada,
+          tipo: entrada.referencia_traspaso ? 'Traspaso' : 'Compra',
+          cantidad: entrada.cantidad,
+          fecha_entrada: entrada.fecha_entrada,
+          estatus_validacion: entrada.estatus_validacion,
+          observaciones_auditor: entrada.observaciones_auditor,
+          motivo_rechazo: entrada.motivo_rechazo,
+          perfume: entrada.id_perfume || null,
+          proveedor: entrada.proveedor || null,
+          almacen_destino: entrada.almacen_destino || null,
+          informacion_adicional: null,
+          fecha_validacion: entrada.fecha_validacion,
+          fecha_rechazo: entrada.fecha_rechazo,
+          error_procesamiento: error.message
+        };
+      }
+    }));
+
+    console.log(`✅ Procesamiento completado. Entradas procesadas: ${entradasProcesadas.length}`);
+
+    // Metadatos de paginación
+    const metadatos = {
+      total,
+      pagina_actual: page,
+      total_paginas: Math.ceil(total / limit),
+      entradas_por_pagina: limit,
+      tiene_siguiente: page < Math.ceil(total / limit),
+      tiene_anterior: page > 1
+    };
+
+    // Estadísticas rápidas
+    const estadisticas = {
+      total_entradas: total,
+      total_compras: await Entrada.countDocuments({ 
+        ...filtro, 
+        referencia_traspaso: { $exists: false } 
+      }),
+      total_traspasos: await Entrada.countDocuments({ 
+        ...filtro, 
+        referencia_traspaso: { $exists: true, $ne: null, $ne: '' } 
+      }),
+      validadas: await Entrada.countDocuments({ 
+        ...filtro, 
+        estatus_validacion: 'validado' 
+      }),
+      pendientes: await Entrada.countDocuments({ 
+        ...filtro, 
+        estatus_validacion: 'registrado' 
+      }),
+      rechazadas: await Entrada.countDocuments({ 
+        ...filtro, 
+        estatus_validacion: 'rechazado' 
+      })
+    };
+
+    console.log(`✅ Se encontraron ${entradasProcesadas.length} entradas de ${total} totales`);
+    console.log('📋 Entradas en respuesta final:', entradasProcesadas.map(e => ({
+      numero: e.numero_entrada,
+      tipo: e.tipo,
+      perfume_ok: !!e.perfume,
+      proveedor_ok: !!e.proveedor,
+      almacen_ok: !!e.almacen_destino,
+      error: e.error_procesamiento || 'none'
+    })));
+
+    // Log final: Mostrar EXACTAMENTE qué se envía al Android
+    console.log('🚀 RESPUESTA FINAL ENVIADA AL ANDROID:');
+    console.log('📦 Total entradas en response.data.entradas:', entradasProcesadas.length);
+    console.log('📋 Números de entrada enviados:', entradasProcesadas.map(e => e.numero_entrada));
+    console.log('🔍 Estructura completa de cada entrada:');
+    entradasProcesadas.forEach((entrada, index) => {
+      console.log(`  ${index + 1}. ${entrada.numero_entrada}:`);
+      console.log(`     - _id: ${entrada._id}`);
+      console.log(`     - tipo: ${entrada.tipo}`);
+      console.log(`     - cantidad: ${entrada.cantidad}`);
+      console.log(`     - fecha_entrada: ${entrada.fecha_entrada}`);
+      console.log(`     - estatus_validacion: ${entrada.estatus_validacion}`);
+      console.log(`     - perfume: ${entrada.perfume ? entrada.perfume.name_per : 'null'}`);
+      console.log(`     - proveedor: ${entrada.proveedor ? entrada.proveedor.nombre_proveedor : 'null'}`);
+      console.log(`     - almacen_destino: ${entrada.almacen_destino ? entrada.almacen_destino.codigo : 'null'}`);
+      console.log(`     - informacion_adicional: ${entrada.informacion_adicional ? 'presente' : 'null'}`);
+    });
+
+    res.json({
+      success: true,
+      message: `Se encontraron ${total} entradas`,
+      data: {
+        entradas: entradasProcesadas,
+        metadatos,
+        estadisticas,
+        filtros_aplicados: {
+          tipo: tipo || null,
+          estatus: estatus || null,
+          busqueda: busqueda || null,
+          pagina: page,
+          limite: limit
+        },
+        // Información adicional para debugging Android
+        debug_info: {
+          total_entradas_enviadas: entradasProcesadas.length,
+          numeros_entrada_enviados: entradasProcesadas.map(e => e.numero_entrada),
+          tipos_entradas: entradasProcesadas.map(e => ({ numero: e.numero_entrada, tipo: e.tipo })),
+          entradas_con_almacen: entradasProcesadas.filter(e => e.almacen_destino).length,
+          entradas_con_perfume: entradasProcesadas.filter(e => e.perfume).length,
+          entradas_con_proveedor: entradasProcesadas.filter(e => e.proveedor).length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo todas las entradas:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+      message: 'No se pudieron obtener las entradas',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   getOrdenCompraCompleta,
   getEntradaCompleta,
   getEntradaTraspasoCompleta,
   getEntradaCompletaInteligente,
   procesarValidacionEntrada,
-  rechazarEntrada
+  rechazarEntrada,
+  obtenerTodasLasEntradas
 };
