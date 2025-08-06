@@ -50,6 +50,11 @@ const entradaSchema = new mongoose.Schema({
     default: '',
     trim: true
   },
+  orden_compra: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'OrdenCompra',
+    default: null
+  },
   tipo: {
     type: String,
     required: true,
@@ -91,6 +96,7 @@ entradaSchema.methods.toPublicJSON = function() {
     fecha_entrada: entrada.fecha_entrada,
     estatus_validacion: entrada.estatus_validacion,
     observaciones_auditor: entrada.observaciones_auditor,
+    orden_compra: entrada.orden_compra,
     tipo: entrada.tipo,
     referencia_traspaso: entrada.referencia_traspaso,
     fecha: entrada.fecha,

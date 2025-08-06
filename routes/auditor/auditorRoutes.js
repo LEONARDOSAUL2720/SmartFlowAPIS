@@ -6,7 +6,9 @@ const {
   getEntradaCompletaInteligente,
   procesarValidacionEntrada,
   rechazarEntrada,
-  obtenerTodasLasEntradas
+  obtenerTodasLasEntradas,
+  obtenerTodosLosPerfumes,
+  obtenerOpcionesFiltros
 } = require('../../controllers/auditor/auditorController');
 
 const { authMiddleware } = require('../../middleware/auth');
@@ -27,6 +29,12 @@ router.get('/orden-compra/:id', getOrdenCompraCompleta);
 // GET /api/auditor/entradas - Obtener todas las entradas con paginación
 router.get('/entradas', obtenerTodasLasEntradas);
 
+// GET /api/auditor/perfumes - Obtener todos los perfumes con filtros (para Android)
+router.get('/perfumes', obtenerTodosLosPerfumes);
+
+// GET /api/auditor/perfumes/filtros - Obtener opciones de filtros (para Android)
+router.get('/perfumes/filtros', obtenerOpcionesFiltros);
+
 // NUEVA RUTA: Búsqueda inteligente que detecta automáticamente el tipo
 router.get('/entrada-busqueda/:id', getEntradaCompletaInteligente);
 
@@ -40,9 +48,9 @@ router.post('/validar-entrada/:id', procesarValidacionEntrada);
 // POST /api/auditor/rechazar-entrada/:numeroEntrada - Rechazar entrada y orden/traspaso relacionado
 router.post('/rechazar-entrada/:numeroEntrada', rechazarEntrada);
 
-// Rutas de perfumes 
+// Rutas de perfumes específicas (si las necesitas)
 const perfumesRoutes = require('./perfumesRoutes');
-router.use('/perfumes', perfumesRoutes);
+router.use('/perfumes-detalle', perfumesRoutes);
 
 
 module.exports = router;

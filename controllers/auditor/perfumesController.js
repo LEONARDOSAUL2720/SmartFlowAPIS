@@ -20,40 +20,28 @@ const obtenerPerfumes = async (req, res) => {
     // Construir filtros de búsqueda
     let filtros = {};
 
-    // Filtro de búsqueda por nombre, marca, código o SKU
+    // Filtro de búsqueda por nombre, marca y descripción
     if (busqueda && busqueda.trim() !== '') {
       filtros.$or = [
         { name_per: { $regex: busqueda, $options: 'i' } },
         { marca: { $regex: busqueda, $options: 'i' } },
-        { codigo_producto: { $regex: busqueda, $options: 'i' } },
-        { sku: { $regex: busqueda, $options: 'i' } },
-        { descripcion_per: { $regex: busqueda, $options: 'i' } },
-        { descripcion: { $regex: busqueda, $options: 'i' } }
+        { descripcion_per: { $regex: busqueda, $options: 'i' } }
       ];
     }
 
-    // Filtro por almacén (principalmente almacen_id)
+    // Filtro por almacén - Solo usar ubicacion_per (que SÍ existe)
     if (almacen && almacen.trim() !== '' && almacen !== 'todos') {
-      filtros.$or = [
-        { almacen_id: { $regex: almacen, $options: 'i' } },
-        { ubicacion_per: { $regex: almacen, $options: 'i' } } // Como fallback
-      ];
+      filtros.ubicacion_per = { $regex: almacen, $options: 'i' };
     }
 
-    // Filtro por categoría (principalmente categoria)
+    // Filtro por categoría - Solo usar categoria_per (que SÍ existe) 
     if (categoria && categoria.trim() !== '' && categoria !== 'todas') {
-      filtros.$or = [
-        { categoria: { $regex: categoria, $options: 'i' } },
-        { categoria_per: { $regex: categoria, $options: 'i' } } // Como fallback
-      ];
+      filtros.categoria_per = { $regex: categoria, $options: 'i' };
     }
 
-    // Filtro por estado (principalmente estado_producto)
+    // Filtro por estado - Solo usar estado (que SÍ existe)
     if (estado && estado.trim() !== '' && estado !== 'todos') {
-      filtros.$or = [
-        { estado_producto: { $regex: estado, $options: 'i' } },
-        { estado: { $regex: estado, $options: 'i' } } // Como fallback
-      ];
+      filtros.estado = { $regex: estado, $options: 'i' };
     }
 
     console.log('🔍 Filtros aplicados:', filtros);
@@ -74,20 +62,23 @@ const obtenerPerfumes = async (req, res) => {
     // Normalizar datos para respuesta consistente
     const perfumesNormalizados = perfumes.map(perfume => ({
       id: perfume._id,
+      _id: perfume._id, // Mantener _id para compatibilidad con Android
       nombre: perfume.name_per || perfume.nombre || 'Sin nombre',
-      marca: perfume.marca || 'Sin marca',
+      name_per: perfume.name_per, // Campo original para Android
+      marca: perfume.marca || 'SmartFlow',
       categoria: perfume.categoria_per || perfume.categoria || 'Sin categoría',
+      categoria_per: perfume.categoria_per, // Campo original para Android
       descripcion: perfume.descripcion_per || perfume.descripcion || 'Sin descripción',
-      codigo_producto: perfume.codigo_producto || 'Sin código',
-      sku: perfume.sku || 'Sin SKU',
+      descripcion_per: perfume.descripcion_per, // Campo original para Android
       precio_venta: perfume.precio_venta_per || perfume.precio_venta || perfume.precio_base || 0,
-      precio_unitario: perfume.precio_unitario || perfume.precio_base || 0,
+      precio_venta_per: perfume.precio_venta_per, // Campo original para Android
       stock_actual: perfume.stock_per || perfume.stock_actual || 0,
+      stock_per: perfume.stock_per, // Campo original para Android
       stock_minimo: perfume.stock_minimo_per || perfume.stock_minimo || 0,
+      stock_minimo_per: perfume.stock_minimo_per, // Campo original para Android
       ubicacion: perfume.ubicacion_per || perfume.ubicacion_fisica || 'Sin ubicación',
-      almacen_id: perfume.almacen_id || 'Sin almacén',
+      ubicacion_per: perfume.ubicacion_per, // Campo original para Android
       estado: perfume.estado || perfume.estado_producto || 'Desconocido',
-      unidad_medida: perfume.unidad_medida || 'ml',
       fecha_expiracion: perfume.fecha_expiracion || null,
       fecha_actualizacion: perfume.updated_at || perfume.updatedAt || perfume.actualizado || null
     }));
@@ -137,38 +128,23 @@ const obtenerOpcionesFiltros = async (req, res) => {
   try {
     console.log('🔍 Obteniendo opciones para filtros...');
 
-    // Obtener valores únicos para cada filtro según los campos especificados
-    // ALMACENES: Principalmente de almacen_id, con fallbacks
-    const almacenesId = await Perfume.distinct('almacen_id');
-    const almacenesUbicacion = await Perfume.distinct('ubicacion_per'); // Como fallback
+    // Obtener valores únicos para cada filtro usando los campos que SÍ existen
+    // ALMACENES: Solo de ubicacion_per
+    const almacenesUbicacion = await Perfume.distinct('ubicacion_per');
     
-    // CATEGORÍAS: Principalmente de categoria, con fallback a categoria_per
-    const categorias = await Perfume.distinct('categoria');
-    const categoriasAlt = await Perfume.distinct('categoria_per'); // Como fallback
+    // CATEGORÍAS: Solo de categoria_per
+    const categoriasAlt = await Perfume.distinct('categoria_per');
     
-    // ESTADOS: Principalmente de estado_producto, con fallback a estado
-    const estadosProducto = await Perfume.distinct('estado_producto');
-    const estados = await Perfume.distinct('estado'); // Como fallback
+    // ESTADOS: Solo de estado
+    const estados = await Perfume.distinct('estado');
     
     // MARCAS: Para filtro adicional
     const marcas = await Perfume.distinct('marca');
 
-    // Combinar y limpiar arrays, priorizando los campos especificados
-    const almacenesUnicos = [...new Set([
-      ...almacenesId.filter(item => item && item.trim() !== ''),
-      ...almacenesUbicacion.filter(item => item && item.trim() !== '')
-    ])].sort();
-    
-    const categoriasUnicas = [...new Set([
-      ...categorias.filter(item => item && item.trim() !== ''),
-      ...categoriasAlt.filter(item => item && item.trim() !== '')
-    ])].sort();
-    
-    const estadosUnicos = [...new Set([
-      ...estadosProducto.filter(item => item && item.trim() !== ''),
-      ...estados.filter(item => item && item.trim() !== '')
-    ])].sort();
-    
+    // Limpiar arrays eliminando valores null/undefined/vacíos
+    const almacenesUnicos = almacenesUbicacion.filter(item => item && item.trim() !== '').sort();
+    const categoriasUnicas = categoriasAlt.filter(item => item && item.trim() !== '').sort();
+    const estadosUnicos = estados.filter(item => item && item.trim() !== '').sort();
     const marcasUnicas = marcas.filter(item => item && item.trim() !== '').sort();
 
     console.log('✅ Opciones de filtros obtenidas exitosamente');

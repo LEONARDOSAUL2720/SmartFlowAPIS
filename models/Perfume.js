@@ -3,32 +3,30 @@ const mongoose = require('mongoose');
 const perfumeSchema = new mongoose.Schema({
   name_per: {
     type: String,
-    required: true,
-    trim: true
+    required: true
   },
   descripcion_per: {
-    type: String,
-    required: true
+    type: String
   },
   categoria_per: {
     type: String,
-    required: true,
-    enum: ['Dama', 'Caballero', 'Unisex']
+    enum: ['Caballero', 'Dama', 'Unisex'],
+    required: true
   },
   precio_venta_per: {
     type: Number,
-    required: true,
-    min: 0
+    default: 0,
+    required: true
   },
   stock_per: {
     type: Number,
-    required: true,
-    min: 0
+    default: 0,
+    required: true
   },
   stock_minimo_per: {
     type: Number,
-    required: true,
-    min: 0
+    default: 0,
+    required: true
   },
   ubicacion_per: {
     type: String,
@@ -40,17 +38,21 @@ const perfumeSchema = new mongoose.Schema({
   },
   estado: {
     type: String,
-    required: true,
-    enum: ['Activo', 'Inactivo', 'Descontinuado'],
+    enum: ['Activo', 'Inactivo'],
     default: 'Activo'
   },
   imagen_url: {
     type: String,
     default: null
+  },
+  marca: {
+    type: String,
+    default: 'SmartFlow'
   }
 }, {
-  timestamps: true,
-  collection: 'perfumes'
+  collection: 'perfumes',
+  timestamps: true, // Esto agrega createdAt y updatedAt automáticamente
+  versionKey: '__v'  // Esto mantiene el __v que tienes en tus documentos
 });
 
 // Método para convertir a JSON público
@@ -67,7 +69,10 @@ perfumeSchema.methods.toPublicJSON = function() {
     ubicacion_per: perfume.ubicacion_per,
     fecha_expiracion: perfume.fecha_expiracion,
     estado: perfume.estado,
-    imagen_url: perfume.imagen_url
+    imagen_url: perfume.imagen_url,
+    marca: perfume.marca,
+    createdAt: perfume.createdAt,
+    updatedAt: perfume.updatedAt
   };
 };
 

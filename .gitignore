@@ -1,4 +1,7 @@
 node_modules/
+android_studio/
+AndroidStudio/
+android_code/
 .env
 .env.local
 .env.development.local

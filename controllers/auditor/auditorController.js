@@ -195,13 +195,14 @@ const getEntradaCompleta = async (req, res) => {
       });
     }
 
-    // 1. Buscar la entrada PRIMERO sin populate del proveedor para ver qué tipo de dato es
+    // 1. Buscar la entrada con populate de orden_compra
     let entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
       .populate('id_perfume')
       .populate('usuario_registro', 'name_user correo_user rol_user')
       .populate('validado_por', 'name_user correo_user rol_user')
       .populate('almacen_origen', 'nombre_almacen ubicacion')
-      .populate('almacen_destino', 'nombre_almacen ubicacion');
+      .populate('almacen_destino', 'nombre_almacen ubicacion')
+      .populate('orden_compra'); // NUEVO: Popular orden de compra directamente
 
     if (!entrada) {
       return res.status(404).json({
@@ -211,10 +212,11 @@ const getEntradaCompleta = async (req, res) => {
     }
 
     console.log('✅ Entrada encontrada:', entrada._id);
-    console.log('🔍 DEBUG - Tipo de proveedor:', typeof entrada.proveedor);
+    console.log('🔍 DEBUG - Tipo deee proveedor:', typeof entrada.proveedor);
     console.log('🔍 DEBUG - Valor proveedor:', entrada.proveedor);
+    console.log('🔍 DEBUG - Orden de compra ID:', entrada.orden_compra);
 
-    // Intentar poblar el proveedor si es un ObjectId
+    // Intentar poblar el proveedor si es necesario
     let proveedorData = null;
     if (entrada.proveedor) {
       try {
@@ -234,50 +236,27 @@ const getEntradaCompleta = async (req, res) => {
       }
     }
 
-    console.log('🔍 DEBUG - Datos de entrada:');
-    console.log('  - ID Perfume:', entrada.id_perfume?._id);
-    console.log('  - Proveedor encontrado:', proveedorData ? proveedorData.nombre_proveedor : 'No encontrado');
-
-    // 2. Buscar la orden de compra relacionada por el mismo perfume y proveedor
+    // 2. NUEVO: Buscar orden de compra directamente usando el campo orden_compra
     let ordenCompraRelacionada = null;
-    if (entrada.id_perfume && proveedorData) {
-      console.log('🔍 Buscando órdenes de compra con perfume:', entrada.id_perfume._id);
-      
-      // Buscar orden de compra que tenga el mismo perfume
-      const ordenesCompra = await OrdenCompra.find({ 
-        id_perfume: entrada.id_perfume._id 
-      }).populate('id_perfume').populate('proveedor');  // CORREGIDO: 'proveedor' en lugar de 'id_proveedor'
-
-      console.log(`📋 Órdenes encontradas para perfume ${entrada.id_perfume.name_per}:`, ordenesCompra.length);
-      
-      // DEBUG: Mostrar todas las órdenes encontradas
-      ordenesCompra.forEach((orden, index) => {
-        const ordenObj = orden.toObject();
-        console.log(`  Orden ${index + 1}:`);
-        console.log(`    - ID: ${orden._id}`);
-        console.log(`    - Número: ${orden.n_orden_compra}`); // CORREGIDO: sin punto
-        console.log(`    - Todos los campos:`, Object.keys(ordenObj));
-        console.log(`    - proveedor: ${orden.proveedor}`);
-        console.log(`    - proveedor poblado: ${orden.proveedor?.nombre_proveedor || 'NO'}`);
+    if (entrada.orden_compra) {
+      console.log('🔍 Buscando orden de compra por referencia directa...');
+      ordenCompraRelacionada = await OrdenCompra.findById(entrada.orden_compra)
+        .populate('id_perfume')
+        .populate('proveedor');
         
-        // Verificar qué proveedor usar para la comparación
-        const proveedorOrden = orden.proveedor;  // CORREGIDO: solo usar 'proveedor'
-        console.log(`    - Proveedor para comparar:`, proveedorOrden?._id);
-        console.log(`    - Coincide ID? ${proveedorOrden?._id?.toString() === proveedorData._id.toString()}`);
-      });
-
-      // Buscar una orden cuyo proveedor coincida con el proveedor de la entrada (por ObjectId)
-      ordenCompraRelacionada = ordenesCompra.find(orden => {
-        return orden.proveedor?._id?.toString() === proveedorData._id.toString();  // CORREGIDO: solo 'proveedor'
-      });
-
-      console.log('✅ Orden relacionada:', ordenCompraRelacionada ? 'ENCONTRADA' : 'NO ENCONTRADA');
       if (ordenCompraRelacionada) {
-        console.log('📋 Datos de orden encontrada:');
-        console.log(`  - ID: ${ordenCompraRelacionada._id}`);
-        console.log(`  - Número: ${ordenCompraRelacionada.n_orden_compra}`); // CORREGIDO: sin punto
-        console.log(`  - Proveedor: ${ordenCompraRelacionada.id_proveedor?.nombre_proveedor}`);
+        console.log('✅ Orden encontrada por referencia directa:', {
+          id: ordenCompraRelacionada._id,
+          numero: ordenCompraRelacionada.n_orden_compra,
+          estado: ordenCompraRelacionada.estado,
+          perfume: ordenCompraRelacionada.id_perfume?.name_per,
+          proveedor: ordenCompraRelacionada.proveedor?.nombre_proveedor
+        });
+      } else {
+        console.log('❌ Orden de compra no encontrada con ID:', entrada.orden_compra);
       }
+    } else {
+      console.log('⚠️ Esta entrada no tiene orden_compra asociada');
     }
 
     // 3. Realizar validaciones cruzadas detalladas
@@ -961,7 +940,7 @@ const getEntradaTraspasoCompleta = async (req, res) => {
       .populate('proveedor')
       .populate('usuario_registro', 'name_user correo_user rol_user')
       .populate('validado_por', 'name_user correo_user rol_user')
-      .populate('almacen_salida', 'nombre_almacen codigo ubicacion'); // AGREGADO: incluir codigo
+      .lean(); // AGREGADO: usar lean() para poder modificar manualmente los almacenes
 
     if (!traspaso) {
       console.log('⚠️ Traspaso original no encontrado, continuando con entrada únicamente...');
@@ -1009,10 +988,106 @@ const getEntradaTraspasoCompleta = async (req, res) => {
 
     console.log('✅ Traspaso original encontrado:', traspaso._id);
 
-    // DEBUG: Verificar qué datos de almacenes tenemos
-    console.log('🔍 DEBUG - Almacenes encontrados:');
+    // NUEVO: Poblar almacenes manualmente ya que pueden ser strings
+    console.log('🔄 Poblando almacenes manualmente...');
+    
+    // Poblar almacen_salida del traspaso
+    if (traspaso.almacen_salida) {
+      try {
+        let almacenSalida = null;
+        if (mongoose.Types.ObjectId.isValid(traspaso.almacen_salida)) {
+          // Es ObjectId
+          almacenSalida = await Almacen.findById(traspaso.almacen_salida)
+            .select('nombre_almacen codigo ubicacion')
+            .lean();
+        } else {
+          // Es string (código)
+          almacenSalida = await Almacen.findOne({ codigo: traspaso.almacen_salida })
+            .select('nombre_almacen codigo ubicacion')
+            .lean();
+        }
+        console.log(`  - Almacén salida encontrado: ${almacenSalida ? almacenSalida.codigo : 'null'}`);
+        traspaso.almacen_salida = almacenSalida;
+      } catch (error) {
+        console.log(`⚠️ Error poblando almacén salida: ${error.message}`);
+        traspaso.almacen_salida = null;
+      }
+    }
+    
+    // Poblar almacen_destino del traspaso
+    if (traspaso.almacen_destino) {
+      try {
+        let almacenDestino = null;
+        if (mongoose.Types.ObjectId.isValid(traspaso.almacen_destino)) {
+          // Es ObjectId
+          almacenDestino = await Almacen.findById(traspaso.almacen_destino)
+            .select('nombre_almacen codigo ubicacion')
+            .lean();
+        } else {
+          // Es string (código)
+          almacenDestino = await Almacen.findOne({ codigo: traspaso.almacen_destino })
+            .select('nombre_almacen codigo ubicacion')
+            .lean();
+        }
+        console.log(`  - Almacén destino encontrado: ${almacenDestino ? almacenDestino.codigo : 'null'}`);
+        traspaso.almacen_destino = almacenDestino;
+      } catch (error) {
+        console.log(`⚠️ Error poblando almacén destino: ${error.message}`);
+        traspaso.almacen_destino = null;
+      }
+    }
+
+    // DEBUG: Verificar qué datos de almacenes tenemos después del populate manual
+    console.log('🔍 DEBUG - Almacenes encontrados después del populate manual:');
     console.log(`  - entrada.almacen_destino:`, entrada.almacen_destino);
     console.log(`  - traspaso.almacen_salida:`, traspaso.almacen_salida);
+    console.log(`  - traspaso.almacen_destino:`, traspaso.almacen_destino);
+
+    // NUEVO: Poblar perfume del traspaso manualmente si no se pobló correctamente
+    if (traspaso.id_perfume && !traspaso.id_perfume.name_per) {
+      console.log('🔄 Poblando perfume del traspaso manualmente...');
+      try {
+        const perfumeId = typeof traspaso.id_perfume === 'object' ? traspaso.id_perfume._id || traspaso.id_perfume : traspaso.id_perfume;
+        const perfumeData = await Perfume.findById(perfumeId)
+          .select('name_per descripcion_per categoria_per precio_venta_per stock_per stock_minimo_per ubicacion_per fecha_expiracion estado')
+          .lean();
+        
+        if (perfumeData) {
+          console.log(`  - Perfume del traspaso encontrado: ${perfumeData.name_per}`);
+          traspaso.id_perfume = perfumeData;
+        } else {
+          console.log(`  - Perfume del traspaso no encontrado en BD`);
+          traspaso.id_perfume = null;
+        }
+      } catch (error) {
+        console.log(`⚠️ Error poblando perfume del traspaso: ${error.message}`);
+        traspaso.id_perfume = null;
+      }
+    }
+
+    // NUEVO: Poblar almacen_destino de la entrada manualmente si es string
+    if (entrada.almacen_destino && typeof entrada.almacen_destino === 'string') {
+      console.log('🔄 Poblando almacen_destino de la entrada manualmente...');
+      try {
+        let almacenDestino = null;
+        
+        // Buscar por código ya que es string
+        almacenDestino = await Almacen.findOne({ codigo: entrada.almacen_destino })
+          .select('nombre_almacen codigo ubicacion')
+          .lean();
+          
+        if (almacenDestino) {
+          console.log(`  - Almacén destino de entrada encontrado: ${almacenDestino.codigo}`);
+          entrada.almacen_destino = almacenDestino;
+        } else {
+          console.log(`  - Almacén destino de entrada no encontrado para código: ${entrada.almacen_destino}`);
+          entrada.almacen_destino = null;
+        }
+      } catch (error) {
+        console.log(`⚠️ Error poblando almacén destino de entrada: ${error.message}`);
+        entrada.almacen_destino = null;
+      }
+    }
 
     // 3. Obtener datos del proveedor de la entrada
     let proveedorEntradaData = null;
@@ -1489,7 +1564,8 @@ const getEntradaTraspasoCompleta = async (req, res) => {
           fecha_salida: traspaso.fecha_salida,
           estatus_validacion: traspaso.estatus_validacion,
           observaciones_auditor: traspaso.observaciones_auditor,
-          almacen_salida: traspaso.almacen_salida
+          almacen_salida: traspaso.almacen_salida,
+          almacen_destino: traspaso.almacen_destino
         } : null,
         perfume: entrada.id_perfume ? {
           _id: entrada.id_perfume._id,
@@ -1793,41 +1869,35 @@ const procesarValidacionEntrada = async (req, res) => {
 const procesarValidacionCompra = async (entrada, req, res) => {
   console.log('💰 Procesando validación de COMPRA...');
 
-  // Buscar la orden de compra relacionada por el mismo perfume y proveedor
-  console.log('🔍 Buscando orden de compra relacionada...');
+  // NUEVO: Buscar la orden de compra directamente usando el campo orden_compra
+  console.log('🔍 Buscando orden de compra usando referencia directa...');
   
-  // Obtener datos del proveedor si es necesario
-  let proveedorData = null;
-  if (entrada.proveedor) {
-    if (typeof entrada.proveedor === 'string') {
-      proveedorData = await Proveedor.findOne({ nombre_proveedor: entrada.proveedor });
-    } else {
-      proveedorData = entrada.proveedor;
-    }
-  }
-
-  if (!proveedorData) {
+  if (!entrada.orden_compra) {
     return res.status(404).json({
-      error: 'Proveedor no encontrado',
-      message: 'No se pudo determinar el proveedor de esta entrada'
+      error: 'Orden de compra no vinculada',
+      message: 'Esta entrada no tiene una orden de compra asociada'
     });
   }
 
-  // Buscar orden de compra que tenga el mismo perfume y proveedor
-  const ordenesCompra = await OrdenCompra.find({ 
-    id_perfume: entrada.id_perfume._id 
-  }).populate('id_perfume').populate('proveedor');
-
-  const ordenCompra = ordenesCompra.find(orden => {
-    return orden.proveedor?._id?.toString() === proveedorData._id.toString();
-  });
+  // Buscar orden de compra directamente por ID
+  const ordenCompra = await OrdenCompra.findById(entrada.orden_compra)
+    .populate('id_perfume')
+    .populate('proveedor');
 
   if (!ordenCompra) {
     return res.status(404).json({
       error: 'Orden de compra no encontrada',
-      message: `No se encontró una orden de compra relacionada para el perfume ${entrada.id_perfume.name_per} y proveedor ${proveedorData.nombre_proveedor}`
+      message: `No se encontró la orden de compra con ID: ${entrada.orden_compra}`
     });
   }
+
+  console.log('✅ Orden de compra encontrada:', {
+    id: ordenCompra._id,
+    numero: ordenCompra.n_orden_compra,
+    estado: ordenCompra.estado,
+    perfume: ordenCompra.id_perfume?.name_per,
+    proveedor: ordenCompra.proveedor?.nombre_proveedor
+  });
 
   // Verificar que la orden no esté ya completada
   if (ordenCompra.estado === 'Completada') {
@@ -1865,6 +1935,17 @@ const procesarValidacionCompra = async (entrada, req, res) => {
   entrada.fecha_validacion = new Date();
   entrada.validado_por = req.user._id;
   entrada.observaciones_auditor = `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
+  
+  // Corregir almacen_destino si es string
+  if (typeof entrada.almacen_destino === 'string') {
+    const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
+    if (almacen) {
+      entrada.almacen_destino = almacen._id;
+    } else {
+      throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
+    }
+  }
+  
   await entrada.save();
 
   // Obtener información completa del auditor
@@ -1981,6 +2062,17 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
   entrada.fecha_validacion = new Date();
   entrada.validado_por = req.user._id;
   entrada.observaciones_auditor = `Entrada de traspaso validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
+  
+  // Corregir almacen_destino si es string
+  if (typeof entrada.almacen_destino === 'string') {
+    const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
+    if (almacen) {
+      entrada.almacen_destino = almacen._id;
+    } else {
+      throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
+    }
+  }
+  
   await entrada.save();
 
   // Obtener información completa del auditor
@@ -2068,12 +2160,36 @@ const rechazarEntrada = async (req, res) => {
       });
     }
 
-    // 1. Buscar la entrada
+    // 1. Buscar la entrada (sin populate de almacen_destino para evitar error de cast)
     console.log('🔍 Buscando entrada...');
     const entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
       .populate('id_perfume')
-      .populate('validado_por', 'name_user')
-      .populate('almacen_destino', 'nombre_almacen codigo');
+      .populate('validado_por', 'name_user');
+
+    if (!entrada) {
+      return res.status(404).json({
+        success: false,
+        error: 'Entrada no encontrada',
+        message: `No se encontró una entrada con el número: ${numeroEntrada}`
+      });
+    }
+
+    // Corregir almacen_destino si es string antes de continuar
+    if (typeof entrada.almacen_destino === 'string') {
+      console.log('🔧 Corrigiendo almacen_destino de string a ObjectId...');
+      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
+      if (almacen) {
+        entrada.almacen_destino = almacen._id;
+        // Guardar la corrección inmediatamente
+        await entrada.save();
+        console.log('✅ almacen_destino corregido y guardado');
+      } else {
+        console.error(`❌ Almacén con código ${entrada.almacen_destino} no encontrado`);
+      }
+    }
+
+    // Ahora hacer populate del almacen_destino corregido
+    await entrada.populate('almacen_destino', 'nombre_almacen codigo');
 
     if (!entrada) {
       return res.status(404).json({
@@ -2168,6 +2284,17 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
     entrada.validado_por = req.user._id;
     entrada.fecha_validacion = new Date();
     entrada.observaciones_auditor = motivo_rechazo;
+    
+    // Corregir almacen_destino si es string
+    if (typeof entrada.almacen_destino === 'string') {
+      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
+      if (almacen) {
+        entrada.almacen_destino = almacen._id;
+      } else {
+        throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
+      }
+    }
+    
     await entrada.save();
 
     console.log('✅ Entrada actualizada a RECHAZADO');
@@ -2257,6 +2384,17 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
     entrada.validado_por = req.user._id;
     entrada.fecha_validacion = new Date();
     entrada.observaciones_auditor = motivo_rechazo;
+    
+    // Corregir almacen_destino si es string
+    if (typeof entrada.almacen_destino === 'string') {
+      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
+      if (almacen) {
+        entrada.almacen_destino = almacen._id;
+      } else {
+        throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
+      }
+    }
+    
     await entrada.save();
 
     console.log('✅ Entrada actualizada a RECHAZADO');
@@ -2379,11 +2517,18 @@ const obtenerTodasLasEntradas = async (req, res) => {
     let entradas = await Entrada.find(filtro)
       .populate({
         path: 'id_perfume',
-        select: 'name_per descripcion_per categoria_per precio_venta_per stock_per estado'
+        select: 'name_per descripcion_per categoria_per precio_venta_per stock_per stock_minimo_per ubicacion_per fecha_expiracion estado',
+        options: { strictPopulate: false } // Permite referencias que no existen
       })
       .populate({
         path: 'proveedor',
-        select: 'nombre_proveedor rfc contacto telefono email estado'
+        select: 'nombre_proveedor rfc contacto telefono email estado',
+        options: { strictPopulate: false }
+      })
+      .populate({
+        path: 'orden_compra',
+        select: 'n_orden_compra estado fecha precio_unitario precio_total',
+        options: { strictPopulate: false }
       })
       .sort({ fecha_entrada: -1 }) // Más recientes primero
       .skip(skip)
@@ -2392,6 +2537,27 @@ const obtenerTodasLasEntradas = async (req, res) => {
 
     console.log(`🔍 Entradas encontradas en BD: ${entradas.length}`);
     console.log('📋 Números de entrada encontrados:', entradas.map(e => e.numero_entrada));
+
+    // DEBUG: Verificar el estado inicial de los perfumes después del populate
+    console.log('🔍 DEBUG - Estado inicial de perfumes después del populate:');
+    for (let i = 0; i < entradas.length; i++) {
+      const entrada = entradas[i];
+      console.log(`  ${i + 1}. ${entrada.numero_entrada}:`);
+      console.log(`     - id_perfume en entrada: ${entrada.id_perfume}`);
+      console.log(`     - tipo de id_perfume: ${typeof entrada.id_perfume}`);
+      console.log(`     - perfume poblado: ${entrada.id_perfume ? 'SÍ' : 'NO'}`);
+      if (entrada.id_perfume) {
+        console.log(`     - name_per: ${entrada.id_perfume.name_per || 'NO DISPONIBLE'}`);
+      }
+      
+      // Verificar si el perfume existe en la BD antes del populate
+      const entradaOriginal = await Entrada.findById(entrada._id).select('id_perfume').lean();
+      if (entradaOriginal.id_perfume) {
+        const perfumeExiste = await Perfume.findById(entradaOriginal.id_perfume).select('name_per').lean();
+        console.log(`     - ID perfume original: ${entradaOriginal.id_perfume}`);
+        console.log(`     - Perfume existe en BD: ${perfumeExiste ? 'SÍ (' + perfumeExiste.name_per + ')' : 'NO'}`);
+      }
+    }
 
     // Poblar almacen_destino manualmente para manejar casos donde puede ser string o ObjectId
     for (let entrada of entradas) {
@@ -2462,6 +2628,41 @@ const obtenerTodasLasEntradas = async (req, res) => {
       } else {
         console.log(`  - Proveedor ya poblado correctamente:`, entrada.proveedor?.nombre_proveedor || 'SIN NOMBRE');
       }
+
+      // NUEVO: Poblar perfume manualmente si no se pobló correctamente
+      console.log(`🔍 DEBUG - Estado del perfume para ${entrada.numero_entrada}:`);
+      console.log(`  - id_perfume actual:`, entrada.id_perfume);
+      console.log(`  - tiene name_per:`, !!entrada.id_perfume?.name_per);
+      
+      if (!entrada.id_perfume || (entrada.id_perfume && !entrada.id_perfume.name_per)) {
+        console.log(`  - Intentando poblar perfume manualmente...`);
+        // Buscar perfume en la entrada original
+        const entradaOriginal = await Entrada.findById(entrada._id).lean();
+        console.log(`  - id_perfume en BD original:`, entradaOriginal.id_perfume);
+        
+        if (entradaOriginal.id_perfume) {
+          try {
+            let perfumeData = null;
+            if (mongoose.Types.ObjectId.isValid(entradaOriginal.id_perfume)) {
+              console.log(`  - Perfume es ObjectId válido, buscando por _id...`);
+              perfumeData = await Perfume.findById(entradaOriginal.id_perfume)
+                .select('name_per descripcion_per categoria_per precio_venta_per stock_per stock_minimo_per ubicacion_per fecha_expiracion estado')
+                .lean();
+            }
+            console.log(`  - Perfume encontrado manualmente:`, perfumeData ? perfumeData.name_per : 'null');
+            if (perfumeData) {
+              entrada.id_perfume = perfumeData;
+            } else {
+              entrada.id_perfume = null;
+            }
+          } catch (error) {
+            console.log(`⚠️ Error poblando perfume manualmente para entrada ${entrada.numero_entrada}:`, error.message);
+            entrada.id_perfume = null;
+          }
+        }
+      } else {
+        console.log(`  - Perfume ya poblado correctamente:`, entrada.id_perfume?.name_per || 'SIN NOMBRE');
+      }
     }
 
     // Obtener total para paginación
@@ -2487,41 +2688,69 @@ const obtenerTodasLasEntradas = async (req, res) => {
               numero_traspaso: entrada.referencia_traspaso
             })
             .populate('almacen_salida', 'codigo nombre_almacen')
+            .populate('almacen_destino', 'codigo nombre_almacen')
             .lean();
 
             console.log(`  - Traspaso encontrado:`, traspaso ? 'SÍ' : 'NO');
             
+            // CORREGIDO: Agregar almacen_destino y convertir almacenes a string
+            let almacenOrigenStr = 'No disponible';
+            let almacenDestinoStr = 'No disponible';
+            
+            if (traspaso?.almacen_salida) {
+              almacenOrigenStr = typeof traspaso.almacen_salida === 'object' 
+                ? (traspaso.almacen_salida.nombre_almacen || traspaso.almacen_salida.codigo || 'Almacén sin nombre')
+                : traspaso.almacen_salida;
+            }
+            
+            if (traspaso?.almacen_destino) {
+              almacenDestinoStr = typeof traspaso.almacen_destino === 'object' 
+                ? (traspaso.almacen_destino.nombre_almacen || traspaso.almacen_destino.codigo || 'Almacén sin nombre')
+                : traspaso.almacen_destino;
+            }
+            
             informacionAdicional = {
               numero_referencia: entrada.referencia_traspaso,
-              almacen_origen: traspaso?.almacen_salida || null,
+              almacen_origen: almacenOrigenStr,
+              almacen_destino: almacenDestinoStr, // NUEVO: Agregar almacén destino
               fecha_salida: traspaso?.fecha_salida || null,
               estatus_traspaso: traspaso?.estatus_validacion || 'No encontrado'
             };
+            
+            console.log(`🔍 DEBUG - informacionAdicional para traspaso ${entrada.referencia_traspaso}:`, informacionAdicional);
           } catch (error) {
             console.log(`⚠️ Error obteniendo traspaso para ${entrada.referencia_traspaso}:`, error.message);
             informacionAdicional = {
               numero_referencia: entrada.referencia_traspaso,
-              almacen_origen: null,
+              almacen_origen: 'Error al obtener datos',
+              almacen_destino: 'Error al obtener datos',
               fecha_salida: null,
               estatus_traspaso: 'Error al obtener datos'
             };
           }
         } else {
-          console.log(`  - Buscando orden de compra para perfume: ${entrada.id_perfume?._id}`);
-          // Buscar orden de compra relacionada
+          console.log(`  - Buscando orden de compra usando referencia directa: ${entrada.orden_compra}`);
+          // NUEVO: Usar orden de compra directamente si ya está poblada
           try {
-            const ordenCompra = await OrdenCompra.findOne({
-              id_perfume: entrada.id_perfume?._id, // CORREGIDO: usar id_perfume en lugar de perfume_id
-              'proveedor.nombre_proveedor': entrada.proveedor?.nombre_proveedor
-            })
-            .select('n_orden_compra estado fecha_orden precio_unitario precio_total')
-            .lean();
-
-            console.log(`  - Orden de compra encontrada:`, ordenCompra ? 'SÍ' : 'NO');
+            let ordenCompra = null;
+            
+            if (entrada.orden_compra) {
+              // Si ya está poblada, usar directamente
+              if (typeof entrada.orden_compra === 'object' && entrada.orden_compra.n_orden_compra) {
+                ordenCompra = entrada.orden_compra;
+                console.log(`  - Orden ya poblada: ${ordenCompra.n_orden_compra}`);
+              } else {
+                // Si solo es el ID, buscar los datos
+                ordenCompra = await OrdenCompra.findById(entrada.orden_compra)
+                  .select('n_orden_compra estado fecha_orden precio_unitario precio_total')
+                  .lean();
+                console.log(`  - Orden encontrada por ID:`, ordenCompra ? 'SÍ' : 'NO');
+              }
+            }
 
             informacionAdicional = {
-              numero_orden: ordenCompra?.n_orden_compra || 'No encontrada',
-              estatus_orden: ordenCompra?.estado || 'No encontrada',
+              numero_orden: ordenCompra?.n_orden_compra || 'No asociada',
+              estatus_orden: ordenCompra?.estado || 'No disponible',
               fecha_orden: ordenCompra?.fecha_orden || null,
               precio_unitario: ordenCompra?.precio_unitario || 0,
               precio_total: ordenCompra?.precio_total || 0
@@ -2544,7 +2773,7 @@ const obtenerTodasLasEntradas = async (req, res) => {
           tipo: tipoEntrada,
           cantidad: entrada.cantidad,
           fecha_entrada: entrada.fecha_entrada,
-          estatus_validacion: entrada.estatus_validacion,
+          estatus_validacion: entrada.estatus_validacion || 'registrado', // CORREGIDO: valor por defecto
           observaciones_auditor: entrada.observaciones_auditor,
           motivo_rechazo: entrada.motivo_rechazo,
           perfume: entrada.id_perfume || null,
@@ -2567,7 +2796,7 @@ const obtenerTodasLasEntradas = async (req, res) => {
           tipo: entrada.referencia_traspaso ? 'Traspaso' : 'Compra',
           cantidad: entrada.cantidad,
           fecha_entrada: entrada.fecha_entrada,
-          estatus_validacion: entrada.estatus_validacion,
+          estatus_validacion: entrada.estatus_validacion || 'registrado', // CORREGIDO: valor por defecto
           observaciones_auditor: entrada.observaciones_auditor,
           motivo_rechazo: entrada.motivo_rechazo,
           perfume: entrada.id_perfume || null,
@@ -2684,6 +2913,175 @@ const obtenerTodasLasEntradas = async (req, res) => {
   }
 };
 
+// ============================================================================
+// FUNCIÓN PARA OBTENER TODOS LOS PERFUMES CON FILTROS (PARA ANDROID)
+// ============================================================================
+const obtenerTodosLosPerfumes = async (req, res) => {
+  console.log('📋 Obteniendo todos los perfumes para auditor...');
+  console.log('👤 Usuario autenticado:', {
+    id: req.user?._id,
+    name: req.user?.name_user,
+    role: req.user?.rol_user
+  });
+
+  try {
+    // Parámetros de paginación y filtros
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Parámetros de filtro opcionales
+    const { almacen, categoria, estado, busqueda } = req.query;
+
+    // Construir filtro de búsqueda
+    let filtro = {};
+
+    // Filtro por almacén (ubicacion_per)
+    if (almacen && almacen !== 'Todos los almacenes') {
+      filtro.ubicacion_per = new RegExp(almacen, 'i');
+    }
+
+    // Filtro por categoría
+    if (categoria && categoria !== 'Todas las categorías') {
+      filtro.categoria_per = new RegExp(categoria, 'i');
+    }
+
+    // Filtro por estado
+    if (estado && estado !== 'Todos los estados') {
+      filtro.estado = new RegExp(estado, 'i');
+    }
+
+    // Filtro por búsqueda (nombre o marca)
+    if (busqueda) {
+      filtro.$or = [
+        { name_per: new RegExp(busqueda, 'i') },
+        { marca: new RegExp(busqueda, 'i') },
+        { descripcion_per: new RegExp(busqueda, 'i') }
+      ];
+    }
+
+    console.log('🔍 Filtro aplicado para perfumes:', filtro);
+
+    // Obtener perfumes
+    const perfumes = await Perfume.find(filtro)
+      .sort({ name_per: 1 }) // Ordenar por nombre
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    console.log(`🔍 Perfumes encontrados: ${perfumes.length}`);
+    
+    // DEBUG: Mostrar estructura del primer perfume
+    if (perfumes.length > 0) {
+      console.log('📋 Ejemplo de perfume enviado al Android:');
+      console.log('   - _id:', perfumes[0]._id);
+      console.log('   - name_per:', perfumes[0].name_per);
+      console.log('   - categoria_per:', perfumes[0].categoria_per);
+      console.log('   - marca:', perfumes[0].marca);
+      console.log('   - stock_per:', perfumes[0].stock_per);
+      console.log('   - stock_minimo_per:', perfumes[0].stock_minimo_per);
+      console.log('   - precio_venta_per:', perfumes[0].precio_venta_per);
+      console.log('   - ubicacion_per:', perfumes[0].ubicacion_per);
+      console.log('   - estado:', perfumes[0].estado);
+      console.log('🔍 Estructura completa del primer perfume:', JSON.stringify(perfumes[0], null, 2));
+    }
+
+    // Obtener total para paginación
+    const total = await Perfume.countDocuments(filtro);
+
+    // Metadatos de paginación
+    const metadatos = {
+      total,
+      pagina_actual: page,
+      total_paginas: Math.ceil(total / limit),
+      perfumes_por_pagina: limit,
+      tiene_siguiente: page < Math.ceil(total / limit),
+      tiene_anterior: page > 1
+    };
+
+    // Estadísticas rápidas
+    const estadisticas = {
+      total_perfumes: total,
+      activos: await Perfume.countDocuments({ ...filtro, estado: 'Activo' }),
+      inactivos: await Perfume.countDocuments({ ...filtro, estado: 'Inactivo' }),
+      stock_bajo: await Perfume.countDocuments({
+        ...filtro,
+        $expr: { $lt: ['$stock_per', '$stock_minimo_per'] }
+      })
+    };
+
+    console.log(`✅ Se encontraron ${perfumes.length} perfumes de ${total} totales`);
+
+    res.json({
+      success: true,
+      message: `Se encontraron ${total} perfumes`,
+      data: {
+        perfumes,
+        metadatos,
+        estadisticas,
+        filtros_aplicados: {
+          almacen: almacen || null,
+          categoria: categoria || null,
+          estado: estado || null,
+          busqueda: busqueda || null,
+          pagina: page,
+          limite: limit
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo perfumes:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+      message: 'No se pudieron obtener los perfumes',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ============================================================================
+// FUNCIÓN PARA OBTENER OPCIONES DE FILTROS (PARA ANDROID)
+// ============================================================================
+const obtenerOpcionesFiltros = async (req, res) => {
+  console.log('🔍 Obteniendo opciones de filtros...');
+
+  try {
+    // Obtener almacenes únicos
+    const almacenes = await Perfume.distinct('ubicacion_per');
+    
+    // Obtener categorías únicas
+    const categorias = await Perfume.distinct('categoria_per');
+    
+    // Obtener estados únicos
+    const estados = await Perfume.distinct('estado');
+
+    console.log(`✅ Opciones encontradas: ${almacenes.length} almacenes, ${categorias.length} categorías, ${estados.length} estados`);
+
+    res.json({
+      success: true,
+      message: 'Opciones de filtros obtenidas exitosamente',
+      data: {
+        almacenes: almacenes.filter(a => a), // Filtrar valores null/undefined
+        categorias: categorias.filter(c => c),
+        estados: estados.filter(e => e)
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo opciones de filtros:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+      message: 'No se pudieron obtener las opciones de filtros',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   getOrdenCompraCompleta,
   getEntradaCompleta,
@@ -2691,5 +3089,7 @@ module.exports = {
   getEntradaCompletaInteligente,
   procesarValidacionEntrada,
   rechazarEntrada,
-  obtenerTodasLasEntradas
+  obtenerTodasLasEntradas,
+  obtenerTodosLosPerfumes,
+  obtenerOpcionesFiltros
 };

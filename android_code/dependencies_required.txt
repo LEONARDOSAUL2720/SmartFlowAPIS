@@ -1,7 +1,0 @@
-// Agrega estas dependencias a tu build.gradle (Module: app)
-// En la sección dependencies:
-
-implementation 'com.google.android.material:material:1.10.0'
-implementation 'androidx.coordinatorlayout:coordinatorlayout:1.2.0'
-
-// Si ya tienes Material Design, solo asegúrate de que sea una versión reciente
