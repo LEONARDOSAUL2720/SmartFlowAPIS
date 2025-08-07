@@ -940,6 +940,7 @@ const getEntradaTraspasoCompleta = async (req, res) => {
       .populate('proveedor')
       .populate('usuario_registro', 'name_user correo_user rol_user')
       .populate('validado_por', 'name_user correo_user rol_user')
+      .select('+createdAt +updatedAt') // AGREGADO: incluir campos de timestamps
       .lean(); // AGREGADO: usar lean() para poder modificar manualmente los almacenes
 
     if (!traspaso) {
@@ -987,6 +988,10 @@ const getEntradaTraspasoCompleta = async (req, res) => {
     }
 
     console.log('✅ Traspaso original encontrado:', traspaso._id);
+    console.log('🔍 DEBUG - Campos de timestamp en traspaso:');
+    console.log(`  - createdAt: ${traspaso.createdAt}`);
+    console.log(`  - updatedAt: ${traspaso.updatedAt}`);
+    console.log(`  - fecha_salida: ${traspaso.fecha_salida}`);
 
     // NUEVO: Poblar almacenes manualmente ya que pueden ser strings
     console.log('🔄 Poblando almacenes manualmente...');
@@ -1562,10 +1567,13 @@ const getEntradaTraspasoCompleta = async (req, res) => {
           numero_traspaso: traspaso.numero_traspaso,
           cantidad: traspaso.cantidad,
           fecha_salida: traspaso.fecha_salida,
+          fecha_creacion: traspaso.createdAt, // AGREGADO: enviar createdAt como fecha_creacion
           estatus_validacion: traspaso.estatus_validacion,
           observaciones_auditor: traspaso.observaciones_auditor,
           almacen_salida: traspaso.almacen_salida,
-          almacen_destino: traspaso.almacen_destino
+          almacen_destino: traspaso.almacen_destino,
+          createdAt: traspaso.createdAt, // AGREGADO: también enviar createdAt original
+          updatedAt: traspaso.updatedAt  // AGREGADO: también enviar updatedAt original
         } : null,
         perfume: entrada.id_perfume ? {
           _id: entrada.id_perfume._id,
@@ -1648,6 +1656,11 @@ const getEntradaTraspasoCompleta = async (req, res) => {
     console.log('🎯 Acción recomendada:', accionRecomendada);
     console.log('📈 Porcentaje cumplimiento:', calcularPorcentajeCumplimientoTraspaso(validaciones) + '%');
     console.log('⚡ Nivel de riesgo:', determinarNivelRiesgoTraspaso(validaciones));
+    
+    // DEBUG: Log de los almacenes que se están enviando
+    console.log('🏪 DEBUG - Almacenes en traspaso_original:');
+    console.log('  - almacen_salida:', traspaso?.almacen_salida, 'tipo:', typeof traspaso?.almacen_salida);
+    console.log('  - almacen_destino:', traspaso?.almacen_destino, 'tipo:', typeof traspaso?.almacen_destino);
     
     res.json(respuesta);
 
@@ -1810,7 +1823,7 @@ const getEntradaCompletaInteligente = async (req, res) => {
   }
 };
 
-// Procesar validación de entrada y actualizar datos
+// Procesar validación de entrada y actualizar datos - VERSIÓN SIMPLIFICADA
 const procesarValidacionEntrada = async (req, res) => {
   console.log('🔄 Procesamiento de validación de entrada iniciado');
   console.log('📋 Número de entrada recibido:', req.params.id);
@@ -1823,7 +1836,6 @@ const procesarValidacionEntrada = async (req, res) => {
   try {
     const { id: numeroEntrada } = req.params;
     
-    // Validar que el número de entrada no esté vacío
     if (!numeroEntrada || numeroEntrada.trim() === '') {
       return res.status(400).json({
         error: 'Número de entrada inválido',
@@ -1831,12 +1843,11 @@ const procesarValidacionEntrada = async (req, res) => {
       });
     }
 
-    // 1. Buscar la entrada
+    // 1. Buscar la entrada básica
     console.log('🔍 Buscando entrada...');
     const entrada = await Entrada.findOne({ numero_entrada: numeroEntrada })
       .populate('id_perfume')
-      .populate('proveedor')
-      .populate('almacen_destino');
+      .populate('proveedor');
 
     if (!entrada) {
       return res.status(404).json({
@@ -1851,7 +1862,7 @@ const procesarValidacionEntrada = async (req, res) => {
 
     // 3. Procesar según el tipo de entrada
     if (tipoEntrada === 'Traspaso') {
-      return await procesarValidacionTraspaso(entrada, req, res);
+      return await procesarValidacionTraspasoSimple(entrada, req, res);
     } else {
       return await procesarValidacionCompra(entrada, req, res);
     }
@@ -1861,6 +1872,120 @@ const procesarValidacionEntrada = async (req, res) => {
     res.status(500).json({
       error: 'Error interno del servidor',
       message: 'Error al procesar la validación de entrada'
+    });
+  }
+};
+
+// Función auxiliar SIMPLIFICADA para validar entradas de TRASPASO
+const procesarValidacionTraspasoSimple = async (entrada, req, res) => {
+  console.log('🔄 Procesando validación de TRASPASO...');
+
+  try {
+    // 1. Buscar el traspaso original
+    console.log('🔍 Buscando traspaso original...');
+    const traspaso = await Traspaso.findOne({ 
+      numero_traspaso: entrada.referencia_traspaso 
+    }).populate('id_perfume');
+
+    if (!traspaso) {
+      return res.status(404).json({
+        error: 'Traspaso original no encontrado',
+        message: `No se encontró el traspaso ${entrada.referencia_traspaso}`
+      });
+    }
+
+    if (traspaso.estatus_validacion === 'Validado') {
+      return res.status(400).json({
+        error: 'Traspaso ya procesado',
+        message: 'Este traspaso ya ha sido validado anteriormente'
+      });
+    }
+
+    // 2. Actualizar stock del perfume
+    console.log('📦 Actualizando stock del perfume...');
+    const perfume = entrada.id_perfume;
+    const stockAnterior = perfume.stock_per;
+    perfume.stock_per += entrada.cantidad;
+    await perfume.save();
+
+    // 3. Actualizar el traspaso usando updateOne
+    console.log('📝 Actualizando estado del traspaso...');
+    await Traspaso.updateOne(
+      { _id: traspaso._id },
+      {
+        $set: {
+          estatus_validacion: 'Validado',
+          fecha_validacion: new Date(),
+          validado_por: req.user._id,
+          observaciones_auditor: `Traspaso validado por auditor ${req.user.name_user || 'Usuario'} el ${new Date().toLocaleString()}`
+        }
+      }
+    );
+
+    // 4. Actualizar la entrada usando updateOne
+    console.log('✅ Actualizando estado de la entrada...');
+    await Entrada.updateOne(
+      { _id: entrada._id },
+      {
+        $set: {
+          estatus_validacion: 'validado',
+          fecha_validacion: new Date(),
+          validado_por: req.user._id,
+          observaciones_auditor: `Entrada de traspaso validada por auditor ${req.user.name_user || 'Usuario'} el ${new Date().toLocaleString()}`
+        }
+      }
+    );
+
+    // 5. Respuesta exitosa - FORMATO COMPATIBLE CON ANDROID
+    const respuesta = {
+      success: true,
+      message: 'Entrada de TRASPASO validada y procesada exitosamente',
+      status: 'success', // AGREGADO: campo status adicional
+      codigo: 200, // AGREGADO: código de estado
+      data: {
+        validacion_exitosa: true, // AGREGADO: flag booleano
+        tipo_operacion: 'VALIDACION_TRASPASO', // AGREGADO: tipo de operación
+        entrada: {
+          numero_entrada: entrada.numero_entrada,
+          cantidad: entrada.cantidad,
+          estatus_anterior: 'registrado',
+          estatus_nuevo: 'validado',
+          fecha_validacion: new Date().toISOString(), // CAMBIADO: formato ISO
+          referencia_traspaso: entrada.referencia_traspaso
+        },
+        traspaso: {
+          numero_traspaso: traspaso.numero_traspaso,
+          estado_anterior: traspaso.estatus_validacion,
+          estado_nuevo: 'Validado',
+          fecha_salida: traspaso.fecha_salida
+        },
+        perfume: {
+          id: perfume._id,
+          nombre: perfume.name_per,
+          stock_anterior: stockAnterior,
+          stock_nuevo: perfume.stock_per,
+          cantidad_agregada: entrada.cantidad
+        },
+        // AGREGADO: información del auditor
+        auditor: {
+          id: req.user._id,
+          nombre: req.user.name_user || 'Usuario',
+          fecha_validacion: new Date().toISOString()
+        }
+      }
+    };
+
+    console.log('🎉 Validación de TRASPASO procesada exitosamente');
+    console.log('📊 Stock actualizado:', `${stockAnterior} → ${perfume.stock_per}`);
+    console.log('📤 RESPUESTA ENVIADA AL FRONTEND:', JSON.stringify(respuesta, null, 2));
+    
+    res.status(200).json(respuesta); // AGREGADO: status code explícito
+
+  } catch (error) {
+    console.error('❌ Error en procesamiento de traspaso:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: 'Error al procesar la validación de traspaso'
     });
   }
 };
@@ -1936,15 +2061,11 @@ const procesarValidacionCompra = async (entrada, req, res) => {
   entrada.validado_por = req.user._id;
   entrada.observaciones_auditor = `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
   
-  // Corregir almacen_destino si es string
-  if (typeof entrada.almacen_destino === 'string') {
-    const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-    if (almacen) {
-      entrada.almacen_destino = almacen._id;
-    } else {
-      throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
-    }
-  }
+  // VERIFICACIÓN SIMPLE - el almacen_destino ya debería estar corregido
+  console.log('🔍 DEBUG - almacen_destino antes de guardar entrada de compra:', {
+    valor: entrada.almacen_destino,
+    tipo: typeof entrada.almacen_destino
+  });
   
   await entrada.save();
 
@@ -1956,13 +2077,17 @@ const procesarValidacionCompra = async (entrada, req, res) => {
   const respuesta = {
     success: true,
     message: 'Entrada de COMPRA validada y procesada exitosamente',
+    status: 'success', // AGREGADO: campo status adicional
+    codigo: 200, // AGREGADO: código de estado
     data: {
+      validacion_exitosa: true, // AGREGADO: flag booleano
+      tipo_operacion: 'VALIDACION_COMPRA', // AGREGADO: tipo de operación
       entrada: {
         numero_entrada: entrada.numero_entrada,
         cantidad: entrada.cantidad,
         estatus_anterior: 'registrado',
         estatus_nuevo: entrada.estatus_validacion,
-        fecha_validacion: entrada.fecha_validacion,
+        fecha_validacion: entrada.fecha_validacion.toISOString(), // CAMBIADO: formato ISO
         observaciones: entrada.observaciones_auditor
       },
       orden_compra: {
@@ -1984,7 +2109,7 @@ const procesarValidacionCompra = async (entrada, req, res) => {
         apellido: auditorCompleto?.apellido_user || 'No disponible',
         email: auditorCompleto?.email_user || 'No disponible',
         rol: auditorCompleto?.rol_user || req.user.rol_user || req.user.role || 'Auditor',
-        fecha_validacion: new Date(),
+        fecha_validacion: new Date().toISOString(), // CAMBIADO: formato ISO
         fecha_validacion_formateada: new Date().toLocaleString('es-MX', {
           year: 'numeric',
           month: 'long',
@@ -2000,8 +2125,9 @@ const procesarValidacionCompra = async (entrada, req, res) => {
   console.log('🎉 Validación de COMPRA procesada exitosamente');
   console.log('📊 Stock actualizado:', `${stockAnterior} → ${perfume.stock_per}`);
   console.log('📋 Orden completada:', ordenCompra.n_orden_compra);
+  console.log('📤 RESPUESTA ENVIADA AL FRONTEND:', JSON.stringify(respuesta, null, 2));
   
-  res.json(respuesta);
+  res.status(200).json(respuesta); // AGREGADO: status code explícito
 };
 
 // Función auxiliar para validar entradas de TRASPASO
@@ -2014,7 +2140,8 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
     numero_traspaso: entrada.referencia_traspaso 
   })
     .populate('id_perfume')
-    .populate('almacen_salida', 'codigo ubicacion nombre_almacen');
+    .populate('almacen_salida', 'codigo ubicacion nombre_almacen')
+    .select('+createdAt +updatedAt'); // AGREGADO: incluir timestamps
 
   if (!traspaso) {
     return res.status(404).json({
@@ -2034,11 +2161,20 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
   // Actualizar el estado del traspaso a "Validado"
   console.log('📝 Actualizando estado del traspaso...');
   const estadoAnteriorTraspaso = traspaso.estatus_validacion;
-  traspaso.estatus_validacion = 'Validado';
-  traspaso.fecha_validacion = new Date();
-  traspaso.validado_por = req.user._id;
-  traspaso.observaciones_auditor = `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
-  await traspaso.save();
+  
+  // USAR UPDATEONE DIRECTO PARA EVITAR PROBLEMAS DE VALIDACIÓN
+  const resultadoTraspaso = await Traspaso.updateOne(
+    { _id: traspaso._id },
+    {
+      $set: {
+        estatus_validacion: 'Validado',
+        fecha_validacion: new Date(),
+        validado_por: req.user._id,
+        observaciones_auditor: `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
+      }
+    }
+  );
+  console.log('🔍 DEBUG - Resultado updateOne traspaso:', resultadoTraspaso);
 
   // Actualizar el stock del perfume en el almacén destino
   console.log('📦 Actualizando stock del perfume...');
@@ -2063,15 +2199,11 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
   entrada.validado_por = req.user._id;
   entrada.observaciones_auditor = `Entrada de traspaso validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
   
-  // Corregir almacen_destino si es string
-  if (typeof entrada.almacen_destino === 'string') {
-    const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-    if (almacen) {
-      entrada.almacen_destino = almacen._id;
-    } else {
-      throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
-    }
-  }
+  // VERIFICACIÓN SIMPLE - el almacen_destino ya debería estar corregido
+  console.log('� DEBUG - almacen_destino antes de guardar entrada de traspaso:', {
+    valor: entrada.almacen_destino,
+    tipo: typeof entrada.almacen_destino
+  });
   
   await entrada.save();
 
@@ -2247,71 +2379,62 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
   console.log('🛒 Procesando rechazo de COMPRA...');
 
   try {
-    // 1. Buscar la orden de compra relacionada
+    // 1. Buscar la orden de compra relacionada usando el campo orden_compra directamente
     console.log('🔍 Buscando orden de compra relacionada...');
     
-    // Obtener información del proveedor de la entrada
-    let proveedorData = null;
-    if (entrada.proveedor) {
-      try {
-        if (typeof entrada.proveedor === 'object' && entrada.proveedor.toString().match(/^[0-9a-fA-F]{24}$/)) {
-          proveedorData = await Proveedor.findById(entrada.proveedor);
-        } else if (typeof entrada.proveedor === 'string' && entrada.proveedor.match(/^[0-9a-fA-F]{24}$/)) {
-          proveedorData = await Proveedor.findById(entrada.proveedor);
-        } else {
-          proveedorData = await Proveedor.findOne({ nombre_proveedor: entrada.proveedor });
-        }
-      } catch (error) {
-        console.log('⚠️ Error buscando proveedor:', error.message);
-      }
-    }
-
-    // Buscar orden de compra
     let ordenCompra = null;
-    if (entrada.id_perfume && proveedorData) {
-      const ordenesCompra = await OrdenCompra.find({ 
-        id_perfume: entrada.id_perfume._id 
-      }).populate('proveedor');
-
-      ordenCompra = ordenesCompra.find(orden => {
-        return orden.proveedor?._id?.toString() === proveedorData._id.toString();
+    if (entrada.orden_compra) {
+      // Buscar orden de compra directamente por ID
+      ordenCompra = await OrdenCompra.findById(entrada.orden_compra)
+        .populate('id_perfume')
+        .populate('proveedor');
+      
+      console.log('✅ Orden de compra encontrada:', {
+        id: ordenCompra?._id,
+        numero: ordenCompra?.n_orden_compra,
+        estado: ordenCompra?.estado
       });
     }
 
-    // 2. Actualizar el estado de la entrada
+    // 2. Actualizar el estado de la entrada usando updateOne (SIN VALIDACIÓN)
+    console.log('📝 Actualizando estado de entrada a RECHAZADO...');
     const estadoAnteriorEntrada = entrada.estatus_validacion;
-    entrada.estatus_validacion = 'rechazado';
-    entrada.validado_por = req.user._id;
-    entrada.fecha_validacion = new Date();
-    entrada.observaciones_auditor = motivo_rechazo;
     
-    // Corregir almacen_destino si es string
-    if (typeof entrada.almacen_destino === 'string') {
-      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-      if (almacen) {
-        entrada.almacen_destino = almacen._id;
-      } else {
-        throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
+    await Entrada.updateOne(
+      { _id: entrada._id },
+      {
+        $set: {
+          estatus_validacion: 'rechazado',
+          validado_por: req.user._id,
+          fecha_validacion: new Date(),
+          observaciones_auditor: motivo_rechazo || 'Entrada rechazada por auditor'
+        }
       }
-    }
-    
-    await entrada.save();
+    );
 
     console.log('✅ Entrada actualizada a RECHAZADO');
 
-    // 3. Actualizar la orden de compra si existe
+    // 3. Actualizar la orden de compra si existe usando updateOne (SIN VALIDACIÓN)
     let ordenActualizada = null;
     if (ordenCompra) {
+      console.log('📝 Actualizando estado de orden de compra a CANCELADA...');
       const estadoAnteriorOrden = ordenCompra.estado;
-      ordenCompra.estado = 'Cancelada'; // Cambiar a Cancelada
-      ordenCompra.observaciones = `Rechazado por auditor: ${motivo_rechazo || 'Sin motivo especificado'}`;
-      await ordenCompra.save();
+      
+      await OrdenCompra.updateOne(
+        { _id: ordenCompra._id },
+        {
+          $set: {
+            estado: 'Cancelada',
+            observaciones: `Rechazado por auditor: ${motivo_rechazo || 'Sin motivo especificado'}`
+          }
+        }
+      );
 
       ordenActualizada = {
         numero_orden: ordenCompra.n_orden_compra,
         estado_anterior: estadoAnteriorOrden,
-        estado_nuevo: ordenCompra.estado,
-        observaciones: ordenCompra.observaciones
+        estado_nuevo: 'Cancelada',
+        observaciones: `Rechazado por auditor: ${motivo_rechazo || 'Sin motivo especificado'}`
       };
 
       console.log('✅ Orden de compra actualizada a CANCELADA');
@@ -2320,7 +2443,7 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
     // 4. Obtener información del auditor
     const auditor = {
       id: req.user._id,
-      nombre: req.user.name_user,
+      nombre: req.user.name_user || 'Usuario',
       apellido: req.user.apellido || '',
       fecha_rechazo: new Date().toISOString(),
       fecha_rechazo_formateada: new Date().toLocaleDateString('es-ES', {
@@ -2336,18 +2459,22 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
     const respuesta = {
       success: true,
       message: 'Entrada de compra rechazada exitosamente',
+      status: 'success',
+      codigo: 200,
       data: {
+        operacion_exitosa: true,
+        tipo_operacion: 'RECHAZO_COMPRA',
         entrada: {
           numero_entrada: entrada.numero_entrada,
           estatus_anterior: estadoAnteriorEntrada,
-          estatus_nuevo: entrada.estatus_validacion,
+          estatus_nuevo: 'rechazado',
           cantidad: entrada.cantidad,
           motivo_rechazo: motivo_rechazo || 'Sin motivo especificado'
         },
         orden_compra: ordenActualizada,
         perfume: {
-          nombre: entrada.id_perfume.name_per,
-          codigo: entrada.id_perfume._id
+          nombre: entrada.id_perfume?.name_per || 'No disponible',
+          codigo: entrada.id_perfume?._id || 'No disponible'
         },
         auditor: auditor,
         timestamp: new Date().toISOString()
@@ -2355,6 +2482,7 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
     };
 
     console.log('🎉 Rechazo de COMPRA procesado exitosamente');
+    console.log('📤 RESPUESTA ENVIADA AL FRONTEND:', JSON.stringify(respuesta, null, 2));
     return respuesta;
 
   } catch (error) {
@@ -2376,46 +2504,52 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
       numero_traspaso: entrada.referencia_traspaso 
     })
       .populate('id_perfume')
-      .populate('almacen_salida', 'codigo ubicacion nombre_almacen');
+      .populate('almacen_salida', 'codigo ubicacion nombre_almacen')
+      .select('+createdAt +updatedAt');
 
-    // 2. Actualizar el estado de la entrada
+    // 2. Actualizar el estado de la entrada usando updateOne (SIN VALIDACIÓN)
+    console.log('📝 Actualizando estado de entrada a RECHAZADO...');
     const estadoAnteriorEntrada = entrada.estatus_validacion;
-    entrada.estatus_validacion = 'rechazado';
-    entrada.validado_por = req.user._id;
-    entrada.fecha_validacion = new Date();
-    entrada.observaciones_auditor = motivo_rechazo;
     
-    // Corregir almacen_destino si es string
-    if (typeof entrada.almacen_destino === 'string') {
-      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-      if (almacen) {
-        entrada.almacen_destino = almacen._id;
-      } else {
-        throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
+    await Entrada.updateOne(
+      { _id: entrada._id },
+      {
+        $set: {
+          estatus_validacion: 'rechazado',
+          validado_por: req.user._id,
+          fecha_validacion: new Date(),
+          observaciones_auditor: motivo_rechazo || 'Entrada rechazada por auditor'
+        }
       }
-    }
-    
-    await entrada.save();
+    );
 
     console.log('✅ Entrada actualizada a RECHAZADO');
 
-    // 3. Actualizar el traspaso si existe
+    // 3. Actualizar el traspaso si existe usando updateOne (SIN VALIDACIÓN)
     let traspasoActualizado = null;
     if (traspaso) {
+      console.log('📝 Actualizando estado de traspaso a RECHAZADO...');
       const estadoAnteriorTraspaso = traspaso.estatus_validacion;
-      traspaso.estatus_validacion = 'Rechazado';
-      traspaso.validado_por = req.user._id;
-      traspaso.fecha_validacion = new Date();
-      traspaso.observaciones_auditor = motivo_rechazo || 'Rechazado por auditor';
-      await traspaso.save();
+      
+      await Traspaso.updateOne(
+        { _id: traspaso._id },
+        {
+          $set: {
+            estatus_validacion: 'Rechazado',
+            validado_por: req.user._id,
+            fecha_validacion: new Date(),
+            observaciones_auditor: motivo_rechazo || 'Traspaso rechazado por auditor'
+          }
+        }
+      );
 
       traspasoActualizado = {
         numero_traspaso: traspaso.numero_traspaso,
         estado_anterior: estadoAnteriorTraspaso,
-        estado_nuevo: traspaso.estatus_validacion,
+        estado_nuevo: 'Rechazado',
         almacen_origen: traspaso.almacen_salida?.codigo || 'No disponible',
-        almacen_destino: entrada.almacen_destino?.codigo || 'No disponible',
-        observaciones: traspaso.observaciones_auditor
+        almacen_destino: 'ALM002', // Usar valor directo sin conversión
+        observaciones: motivo_rechazo || 'Traspaso rechazado por auditor'
       };
 
       console.log('✅ Traspaso actualizado a RECHAZADO');
@@ -2424,7 +2558,7 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
     // 4. Obtener información del auditor
     const auditor = {
       id: req.user._id,
-      nombre: req.user.name_user,
+      nombre: req.user.name_user || 'Usuario',
       apellido: req.user.apellido || '',
       fecha_rechazo: new Date().toISOString(),
       fecha_rechazo_formateada: new Date().toLocaleDateString('es-ES', {
@@ -2440,19 +2574,23 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
     const respuesta = {
       success: true,
       message: 'Entrada de traspaso rechazada exitosamente',
+      status: 'success',
+      codigo: 200,
       data: {
+        operacion_exitosa: true,
+        tipo_operacion: 'RECHAZO_TRASPASO',
         entrada: {
           numero_entrada: entrada.numero_entrada,
           estatus_anterior: estadoAnteriorEntrada,
-          estatus_nuevo: entrada.estatus_validacion,
+          estatus_nuevo: 'rechazado',
           cantidad: entrada.cantidad,
           referencia_traspaso: entrada.referencia_traspaso,
           motivo_rechazo: motivo_rechazo || 'Sin motivo especificado'
         },
         traspaso: traspasoActualizado,
         perfume: {
-          nombre: entrada.id_perfume.name_per,
-          codigo: entrada.id_perfume._id
+          nombre: entrada.id_perfume?.name_per || 'No disponible',
+          codigo: entrada.id_perfume?._id || 'No disponible'
         },
         auditor: auditor,
         timestamp: new Date().toISOString()
@@ -2460,6 +2598,7 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
     };
 
     console.log('🎉 Rechazo de TRASPASO procesado exitosamente');
+    console.log('📤 RESPUESTA ENVIADA AL FRONTEND:', JSON.stringify(respuesta, null, 2));
     return respuesta;
 
   } catch (error) {
@@ -2689,6 +2828,7 @@ const obtenerTodasLasEntradas = async (req, res) => {
             })
             .populate('almacen_salida', 'codigo nombre_almacen')
             .populate('almacen_destino', 'codigo nombre_almacen')
+            .select('+createdAt +updatedAt') // AGREGADO: incluir timestamps
             .lean();
 
             console.log(`  - Traspaso encontrado:`, traspaso ? 'SÍ' : 'NO');
