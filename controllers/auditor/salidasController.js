@@ -10,7 +10,7 @@ const mongoose = require('mongoose');
 const normalizarSalida = (salida) => {
   const salidaNormalizada = salida.toObject ? salida.toObject() : salida;
   
-  // Convertir _id a string si es un ObjectId
+  // Convertir _id a string si es un ObjectId ejemplooo
   const idString = salidaNormalizada._id ? salidaNormalizada._id.toString() : '';
   
   return {
