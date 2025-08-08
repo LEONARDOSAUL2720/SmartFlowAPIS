@@ -37,11 +37,8 @@ const traspasoSchema = new mongoose.Schema({
     required: true
   },
   almacen_salida: {
-    type: mongoose.Schema.Types.Mixed, // Permite string o ObjectId
-    required: true
-  },
-  almacen_destino: {
-    type: mongoose.Schema.Types.Mixed, // Permite string o ObjectId para no problems
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Almacen',
     required: true
   },
   // Campos de auditoría

@@ -18,7 +18,9 @@ const OrdenCompra = require('./models/OrdenCompra');
 const Perfume = require('./models/Perfume');
 const Entrada = require('./models/Entrada');
 const Proveedor = require('./models/Proveedor');
-const Almacen = require('./models/Almacen'); // AGREGAR modelo Almacen
+const Almacen = require('./models/Almacen');
+const Traspaso = require('./models/Traspaso');
+const Salida = require('./models/Salida'); // NUEVO: modelo Salida
 
 const app = express();
 
