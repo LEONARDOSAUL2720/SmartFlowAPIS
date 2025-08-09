@@ -11,6 +11,9 @@ const {
   obtenerOpcionesFiltros
 } = require('../../controllers/auditor/auditorController');
 
+// Importar rutas de salidas
+const salidasRoutes = require('./salidasRoutes');
+
 const { authMiddleware } = require('../../middleware/auth');
 const { requireAuditor } = require('../../middleware/roleMiddleware');
 
@@ -52,9 +55,8 @@ router.post('/rechazar-entrada/:numeroEntrada', rechazarEntrada);
 const perfumesRoutes = require('./perfumesRoutes');
 router.use('/perfumes-detalle', perfumesRoutes);
 
-// Rutas de salidas para auditoría (COMENTADO - no necesario para reportes de entradas)
-// const salidasRoutes = require('./salidasRoutes');
-// router.use('/salidas', salidasRoutes);
+// Rutas de salidas para auditoría
+router.use('/salidas', salidasRoutes);
 
 // Rutas de reportes para auditoría
 const reportesRoutes = require('./reportesRoutes');
