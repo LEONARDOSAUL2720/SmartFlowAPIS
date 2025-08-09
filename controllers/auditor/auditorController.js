@@ -2010,11 +2010,16 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
   // Actualizar el estado del traspaso a "Validado"
   console.log('📝 Actualizando estado del traspaso...');
   const estadoAnteriorTraspaso = traspaso.estatus_validacion;
-  traspaso.estatus_validacion = 'Validado';
-  traspaso.fecha_validacion = new Date();
-  traspaso.validado_por = req.user._id;
-  traspaso.observaciones_auditor = `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
-  await traspaso.save();
+  
+  // Solo actualizar los campos de validación, no modificar almacenes
+  const updateData = {
+    estatus_validacion: 'Validado',
+    fecha_validacion: new Date(),
+    validado_por: req.user._id,
+    observaciones_auditor: `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
+  };
+
+  await Traspaso.findByIdAndUpdate(traspaso._id, updateData, { new: true });
 
   // Actualizar el stock del perfume en el almacén destino
   console.log('📦 Actualizando stock del perfume...');
@@ -2034,22 +2039,16 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
 
   // Actualizar el estatus de validación de la entrada
   console.log('✅ Actualizando estatus de validación de la entrada...');
-  entrada.estatus_validacion = 'validado';
-  entrada.fecha_validacion = new Date();
-  entrada.validado_por = req.user._id;
-  entrada.observaciones_auditor = `Entrada de traspaso validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
   
-  // Corregir almacen_destino si es string
-  if (typeof entrada.almacen_destino === 'string') {
-    const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-    if (almacen) {
-      entrada.almacen_destino = almacen._id;
-    } else {
-      throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
-    }
-  }
-  
-  await entrada.save();
+  // Solo actualizar los campos de validación, no modificar almacenes
+  const updateDataEntrada = {
+    estatus_validacion: 'validado',
+    fecha_validacion: new Date(),
+    validado_por: req.user._id,
+    observaciones_auditor: `Entrada de traspaso validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
+  };
+
+  await Entrada.findByIdAndUpdate(entrada._id, updateDataEntrada, { new: true });
 
   // Obtener información completa del auditor
   console.log('🔍 Obteniendo información completa del auditor...');
@@ -2256,22 +2255,16 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
 
     // 2. Actualizar el estado de la entrada
     const estadoAnteriorEntrada = entrada.estatus_validacion;
-    entrada.estatus_validacion = 'rechazado';
-    entrada.validado_por = req.user._id;
-    entrada.fecha_validacion = new Date();
-    entrada.observaciones_auditor = motivo_rechazo;
     
-    // Corregir almacen_destino si es string
-    if (typeof entrada.almacen_destino === 'string') {
-      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-      if (almacen) {
-        entrada.almacen_destino = almacen._id;
-      } else {
-        throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
-      }
-    }
-    
-    await entrada.save();
+    // Solo actualizar los campos de validación, no modificar almacenes
+    const updateDataEntrada = {
+      estatus_validacion: 'rechazado',
+      validado_por: req.user._id,
+      fecha_validacion: new Date(),
+      observaciones_auditor: motivo_rechazo
+    };
+
+    await Entrada.findByIdAndUpdate(entrada._id, updateDataEntrada, { new: true });
 
     console.log('✅ Entrada actualizada a RECHAZADO');
 
@@ -2356,22 +2349,16 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
 
     // 2. Actualizar el estado de la entrada
     const estadoAnteriorEntrada = entrada.estatus_validacion;
-    entrada.estatus_validacion = 'rechazado';
-    entrada.validado_por = req.user._id;
-    entrada.fecha_validacion = new Date();
-    entrada.observaciones_auditor = motivo_rechazo;
     
-    // Corregir almacen_destino si es string
-    if (typeof entrada.almacen_destino === 'string') {
-      const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-      if (almacen) {
-        entrada.almacen_destino = almacen._id;
-      } else {
-        throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
-      }
-    }
-    
-    await entrada.save();
+    // Solo actualizar los campos de validación, no modificar almacenes
+    const updateDataEntrada = {
+      estatus_validacion: 'rechazado',
+      validado_por: req.user._id,
+      fecha_validacion: new Date(),
+      observaciones_auditor: motivo_rechazo
+    };
+
+    await Entrada.findByIdAndUpdate(entrada._id, updateDataEntrada, { new: true });
 
     console.log('✅ Entrada actualizada a RECHAZADO');
 
@@ -2379,19 +2366,24 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
     let traspasoActualizado = null;
     if (traspaso) {
       const estadoAnteriorTraspaso = traspaso.estatus_validacion;
-      traspaso.estatus_validacion = 'Rechazado';
-      traspaso.validado_por = req.user._id;
-      traspaso.fecha_validacion = new Date();
-      traspaso.observaciones_auditor = motivo_rechazo || 'Rechazado por auditor';
-      await traspaso.save();
+      
+      // Solo actualizar los campos de validación, no modificar almacenes
+      const updateData = {
+        estatus_validacion: 'Rechazado',
+        validado_por: req.user._id,
+        fecha_validacion: new Date(),
+        observaciones_auditor: motivo_rechazo || 'Rechazado por auditor'
+      };
+
+      const traspasoUpdated = await Traspaso.findByIdAndUpdate(traspaso._id, updateData, { new: true });
 
       traspasoActualizado = {
         numero_traspaso: traspaso.numero_traspaso,
         estado_anterior: estadoAnteriorTraspaso,
-        estado_nuevo: traspaso.estatus_validacion,
-        almacen_origen: traspaso.almacen_salida?.codigo || 'No disponible',
-        almacen_destino: entrada.almacen_destino?.codigo || 'No disponible',
-        observaciones: traspaso.observaciones_auditor
+        estado_nuevo: 'Rechazado',
+        almacen_origen: traspaso.almacen_salida || 'No disponible',
+        almacen_destino: entrada.almacen_destino || 'No disponible',
+        observaciones: updateData.observaciones_auditor
       };
 
       console.log('✅ Traspaso actualizado a RECHAZADO');
