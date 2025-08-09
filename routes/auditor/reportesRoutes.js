@@ -6,6 +6,10 @@ const {
   generarReporteEntradas, 
   obtenerOpcionesFiltrosReporte 
 } = require('../../controllers/auditor/ReporteEntradasAuditorController');
+const { 
+  generarReporteSalidas, 
+  obtenerOpcionesFiltrosSalidas 
+} = require('../../controllers/auditor/ReporteSalidasAuditorController');
 
 // ============================================================================
 // RUTAS PARA REPORTES DE ENTRADAS (AUDITOR) jejeje
@@ -32,6 +36,33 @@ router.get('/entradas/filtros',
   authMiddleware, 
   requireAuditor, 
   obtenerOpcionesFiltrosReporte
+);
+
+// ============================================================================
+// RUTAS PARA REPORTES DE SALIDAS (AUDITOR)
+// ============================================================================
+
+/**
+ * @route   GET /api/auditor/reportes/salidas
+ * @desc    Generar reporte ejecutivo de salidas con filtros de fecha y tipo
+ * @access  Auditor
+ * @params  fecha_desde, fecha_hasta, tipo_reporte, tipo_salida, formato
+ */
+router.get('/salidas', 
+  authMiddleware, 
+  requireAuditor, 
+  generarReporteSalidas
+);
+
+/**
+ * @route   GET /api/auditor/reportes/salidas/filtros
+ * @desc    Obtener opciones disponibles para filtros del reporte de salidas
+ * @access  Auditor
+ */
+router.get('/salidas/filtros', 
+  authMiddleware, 
+  requireAuditor, 
+  obtenerOpcionesFiltrosSalidas
 );
 
 module.exports = router;
