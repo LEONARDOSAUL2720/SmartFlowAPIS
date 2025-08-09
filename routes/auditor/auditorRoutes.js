@@ -52,8 +52,12 @@ router.post('/rechazar-entrada/:numeroEntrada', rechazarEntrada);
 const perfumesRoutes = require('./perfumesRoutes');
 router.use('/perfumes-detalle', perfumesRoutes);
 
-// Rutas de salidas para auditoría
-const salidasRoutes = require('./salidasRoutes');
-router.use('/salidas', salidasRoutes);
+// Rutas de salidas para auditoría (COMENTADO - no necesario para reportes de entradas)
+// const salidasRoutes = require('./salidasRoutes');
+// router.use('/salidas', salidasRoutes);
+
+// Rutas de reportes para auditoría
+const reportesRoutes = require('./reportesRoutes');
+router.use('/reportes', reportesRoutes);
 
 module.exports = router;
