@@ -1905,24 +1905,17 @@ const procesarValidacionCompra = async (entrada, req, res) => {
   perfume.stock_per += entrada.cantidad;
   await perfume.save();
 
-  // Actualizar el estatus de validación de la entrada
-  console.log('✅ Actualizando estatus de validación...');
-  entrada.estatus_validacion = 'validado';
-  entrada.fecha_validacion = new Date();
-  entrada.validado_por = req.user._id;
-  entrada.observaciones_auditor = `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`;
-  
-  // Corregir almacen_destino si es string
-  if (typeof entrada.almacen_destino === 'string') {
-    const almacen = await Almacen.findOne({ codigo: entrada.almacen_destino });
-    if (almacen) {
-      entrada.almacen_destino = almacen._id;
-    } else {
-      throw new Error(`Almacén con código ${entrada.almacen_destino} no encontrado`);
-    }
-  }
-  
-  await entrada.save();
+  // Actualizar solo los campos de validación usando findByIdAndUpdate y obtener el objeto actualizado
+  const entradaActualizada = await Entrada.findByIdAndUpdate(
+    entrada._id,
+    {
+      estatus_validacion: 'validado',
+      fecha_validacion: new Date(),
+      validado_por: req.user._id,
+      observaciones_auditor: `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
+    },
+    { new: true }
+  );
 
   // Obtener información completa del auditor
   console.log('🔍 Obteniendo información completa del auditor...');
@@ -1934,12 +1927,12 @@ const procesarValidacionCompra = async (entrada, req, res) => {
     message: 'Entrada de COMPRA validada y procesada exitosamente',
     data: {
       entrada: {
-        numero_entrada: entrada.numero_entrada,
-        cantidad: entrada.cantidad,
+        numero_entrada: entradaActualizada.numero_entrada,
+        cantidad: entradaActualizada.cantidad,
         estatus_anterior: 'registrado',
-        estatus_nuevo: entrada.estatus_validacion,
-        fecha_validacion: entrada.fecha_validacion,
-        observaciones: entrada.observaciones_auditor
+        estatus_nuevo: entradaActualizada.estatus_validacion,
+        fecha_validacion: entradaActualizada.fecha_validacion,
+        observaciones: entradaActualizada.observaciones_auditor
       },
       orden_compra: {
         numero_orden: ordenCompra.n_orden_compra,
@@ -1982,9 +1975,10 @@ const procesarValidacionCompra = async (entrada, req, res) => {
 
 // Función auxiliar para validar entradas de TRASPASO
 const procesarValidacionTraspaso = async (entrada, req, res) => {
-  console.log('� Procesando validación de TRASPASO...');
 
-  // Buscar el traspaso original usando la referencia
+  console.log('🔄 Procesando validación de TRASPASO...');
+
+  // Buscar el traspaso original usando la referencia cambioooooo
   console.log('🔍 Buscando traspaso original...');
   const traspaso = await Traspaso.findOne({ 
     numero_traspaso: entrada.referencia_traspaso 
@@ -1994,61 +1988,46 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
 
   if (!traspaso) {
     return res.status(404).json({
-      error: 'Traspaso original no encontrado',
-      message: `No se encontró el traspaso ${entrada.referencia_traspaso} referenciado en esta entrada`
+      error: 'Traspaso no encontrado',
+      message: `No se encontró el traspaso con referencia: ${entrada.referencia_traspaso}`
     });
   }
 
-  // Verificar que el traspaso no esté ya completado
-  if (traspaso.estatus_validacion === 'Validado') {
-    return res.status(400).json({
-      error: 'Traspaso ya procesado',
-      message: 'Este traspaso ya ha sido validado anteriormente'
-    });
-  }
+  // Actualizar solo los campos de validación usando findByIdAndUpdate y obtener el objeto actualizado
+  const entradaActualizada = await Entrada.findByIdAndUpdate(
+    entrada._id,
+    {
+      estatus_validacion: 'validado',
+      fecha_validacion: new Date(),
+      validado_por: req.user._id,
+      observaciones_auditor: `Validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
+    },
+    { new: true }
+  );
 
   // Actualizar el estado del traspaso a "Validado"
   console.log('📝 Actualizando estado del traspaso...');
   const estadoAnteriorTraspaso = traspaso.estatus_validacion;
-  
-  // Solo actualizar los campos de validación, no modificar almacenes
-  const updateData = {
-    estatus_validacion: 'Validado',
-    fecha_validacion: new Date(),
-    validado_por: req.user._id,
-    observaciones_auditor: `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
-  };
+  await Traspaso.findByIdAndUpdate(
+    traspaso._id,
+    {
+      estatus_validacion: 'Validado',
+      observaciones_auditor: `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`,
+      fecha_validacion: new Date()
+    }
+  );
 
-  await Traspaso.findByIdAndUpdate(traspaso._id, updateData, { new: true });
-
-  // Actualizar el stock del perfume en el almacén destino
-  console.log('📦 Actualizando stock del perfume...');
+  // Actualizar el stock del perfume
   const perfume = entrada.id_perfume;
-  
   if (!perfume) {
     return res.status(404).json({
       error: 'Perfume no encontrado',
       message: 'El perfume asociado a esta entrada no existe'
     });
   }
-
-  // Agregar la cantidad de la entrada al stock actual
   const stockAnterior = perfume.stock_per;
   perfume.stock_per += entrada.cantidad;
   await perfume.save();
-
-  // Actualizar el estatus de validación de la entrada
-  console.log('✅ Actualizando estatus de validación de la entrada...');
-  
-  // Solo actualizar los campos de validación, no modificar almacenes
-  const updateDataEntrada = {
-    estatus_validacion: 'validado',
-    fecha_validacion: new Date(),
-    validado_por: req.user._id,
-    observaciones_auditor: `Entrada de traspaso validada por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
-  };
-
-  await Entrada.findByIdAndUpdate(entrada._id, updateDataEntrada, { new: true });
 
   // Obtener información completa del auditor
   console.log('🔍 Obteniendo información completa del auditor...');
@@ -2060,22 +2039,22 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
     message: 'Entrada de TRASPASO validada y procesada exitosamente',
     data: {
       entrada: {
-        numero_entrada: entrada.numero_entrada,
-        cantidad: entrada.cantidad,
+        numero_entrada: entradaActualizada.numero_entrada,
+        cantidad: entradaActualizada.cantidad,
         estatus_anterior: 'registrado',
-        estatus_nuevo: entrada.estatus_validacion,
-        fecha_validacion: entrada.fecha_validacion,
-        observaciones: entrada.observaciones_auditor,
-        referencia_traspaso: entrada.referencia_traspaso
+        estatus_nuevo: entradaActualizada.estatus_validacion,
+        fecha_validacion: entradaActualizada.fecha_validacion,
+        observaciones: entradaActualizada.observaciones_auditor,
+        referencia_traspaso: entradaActualizada.referencia_traspaso
       },
       traspaso: {
         numero_traspaso: traspaso.numero_traspaso,
         estado_anterior: estadoAnteriorTraspaso,
-        estado_nuevo: traspaso.estatus_validacion,
+        estado_nuevo: 'Validado',
         fecha_salida: traspaso.fecha_salida,
         almacen_origen: traspaso.almacen_salida?.codigo || 'No disponible',
         almacen_destino: entrada.almacen_destino?.codigo || 'No disponible',
-        observaciones: traspaso.observaciones_auditor
+        observaciones: `Traspaso validado por auditor ${req.user.name_user || req.user.name || 'Usuario'} el ${new Date().toLocaleString()}`
       },
       perfume: {
         id: perfume._id,
@@ -2109,7 +2088,9 @@ const procesarValidacionTraspaso = async (entrada, req, res) => {
   console.log('📋 Almacenes:', `${traspaso.almacen_salida?.codigo || 'N/A'} → ${entrada.almacen_destino?.codigo || 'N/A'}`);
   
   res.json(respuesta);
-};
+}
+
+
 
 // ============================================================================
 // FUNCIÓN PARA RECHAZAR ENTRADA (COMPRA O TRASPASO)
@@ -2118,7 +2099,7 @@ const rechazarEntrada = async (req, res) => {
   console.log('🚫 Procesamiento de rechazo de entrada iniciado');
   console.log('📋 Número de entrada recibido:', req.params.numeroEntrada);
   console.log('👤 Usuario auditor:', {
-    id: req.user._id,
+          id: req.user._id,
     name: req.user.name_user,
     role: req.user.rol_user
   });
@@ -2216,7 +2197,7 @@ const rechazarEntrada = async (req, res) => {
 };
 
 // ============================================================================
-// FUNCIÓN AUXILIAR: PROCESAR RECHAZO DE COMPRA
+// FUNCIÓN AUXILIAR: PROCESAR RECHAZO DE COMPRAAAAA
 // ============================================================================
 const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
   console.log('🛒 Procesando rechazo de COMPRA...');
@@ -2253,18 +2234,17 @@ const procesarRechazoCompra = async (entrada, req, motivo_rechazo) => {
       });
     }
 
-    // 2. Actualizar el estado de la entrada
     const estadoAnteriorEntrada = entrada.estatus_validacion;
-    
-    // Solo actualizar los campos de validación, no modificar almacenes
-    const updateDataEntrada = {
-      estatus_validacion: 'rechazado',
-      validado_por: req.user._id,
-      fecha_validacion: new Date(),
-      observaciones_auditor: motivo_rechazo
-    };
-
-    await Entrada.findByIdAndUpdate(entrada._id, updateDataEntrada, { new: true });
+const entradaActualizada = await Entrada.findByIdAndUpdate(
+  entrada._id,
+  {
+    estatus_validacion: 'rechazado',
+    fecha_validacion: new Date(),
+    validado_por: req.user._id,
+    observaciones_auditor: motivo_rechazo
+  },
+  { new: true }
+);
 
     console.log('✅ Entrada actualizada a RECHAZADO');
 
@@ -2347,18 +2327,17 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
       .populate('id_perfume')
       .populate('almacen_salida', 'codigo ubicacion nombre_almacen');
 
-    // 2. Actualizar el estado de la entrada
     const estadoAnteriorEntrada = entrada.estatus_validacion;
-    
-    // Solo actualizar los campos de validación, no modificar almacenes
-    const updateDataEntrada = {
-      estatus_validacion: 'rechazado',
-      validado_por: req.user._id,
-      fecha_validacion: new Date(),
-      observaciones_auditor: motivo_rechazo
-    };
-
-    await Entrada.findByIdAndUpdate(entrada._id, updateDataEntrada, { new: true });
+const entradaActualizada = await Entrada.findByIdAndUpdate(
+  entrada._id,
+  {
+    estatus_validacion: 'rechazado',
+    fecha_validacion: new Date(),
+    validado_por: req.user._id,
+    observaciones_auditor: motivo_rechazo
+  },
+  { new: true }
+);
 
     console.log('✅ Entrada actualizada a RECHAZADO');
 
@@ -2366,26 +2345,24 @@ const procesarRechazoTraspaso = async (entrada, req, motivo_rechazo) => {
     let traspasoActualizado = null;
     if (traspaso) {
       const estadoAnteriorTraspaso = traspaso.estatus_validacion;
-      
-      // Solo actualizar los campos de validación, no modificar almacenes
-      const updateData = {
-        estatus_validacion: 'Rechazado',
-        validado_por: req.user._id,
-        fecha_validacion: new Date(),
-        observaciones_auditor: motivo_rechazo || 'Rechazado por auditor'
-      };
-
-      const traspasoUpdated = await Traspaso.findByIdAndUpdate(traspaso._id, updateData, { new: true });
-
+      await Traspaso.findByIdAndUpdate(
+        traspaso._id,
+        {
+          estatus_validacion: 'Rechazado',
+          observaciones_auditor: motivo_rechazo || 'Rechazado por auditor',
+          fecha_validacion: new Date(),
+          validado_por: req.user._id
+        },
+        { new: true }
+      );
       traspasoActualizado = {
         numero_traspaso: traspaso.numero_traspaso,
         estado_anterior: estadoAnteriorTraspaso,
         estado_nuevo: 'Rechazado',
-        almacen_origen: traspaso.almacen_salida || 'No disponible',
-        almacen_destino: entrada.almacen_destino || 'No disponible',
-        observaciones: updateData.observaciones_auditor
+        almacen_origen: traspaso.almacen_salida?.codigo || 'No disponible',
+        almacen_destino: entrada.almacen_destino?.codigo || 'No disponible',
+        observaciones: motivo_rechazo || 'Rechazado por auditor'
       };
-
       console.log('✅ Traspaso actualizado a RECHAZADO');
     }
 

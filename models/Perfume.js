@@ -51,8 +51,8 @@ const perfumeSchema = new mongoose.Schema({
   }
 }, {
   collection: 'perfumes',
-  timestamps: true, // Esto agrega createdAt y updatedAt automáticamente
-  versionKey: '__v'  // Esto mantiene el __v que tienes en tus documentos
+  timestamps: true, 
+  versionKey: '__v' 
 });
 
 // Método para convertir a JSON público
