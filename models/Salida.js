@@ -3,8 +3,8 @@ const mongoose = require('mongoose');
 const salidaSchema = new mongoose.Schema({
   numero_salida: {
     type: String,
-    required: true,
-    unique: true,
+    required: false,
+    unique: false,
     trim: true
   },
   nombre_perfume: {

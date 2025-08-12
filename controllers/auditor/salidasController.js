@@ -15,8 +15,7 @@ const normalizarSalida = (salida) => {
   
   return {
     ...salidaNormalizada,
-    // Generar numero_salida si no existe
-    numero_salida: salidaNormalizada.numero_salida || `SAL-${idString.slice(-6).toUpperCase()}`,
+    identificador: idString,
     // Asegurar que existan campos de auditoría
     estatus_auditoria: salidaNormalizada.estatus_auditoria || 'pendiente',
     auditado_por: salidaNormalizada.auditado_por || null,
@@ -85,11 +84,11 @@ const obtenerTodasLasSalidas = async (req, res) => {
     // Filtro por búsqueda (número de salida, cliente, número de factura)
     if (busqueda) {
       filtro.$or = [
-        { numero_salida: new RegExp(busqueda, 'i') },
+        { _id: busqueda.length === 24 ? busqueda : undefined },
         { cliente: new RegExp(busqueda, 'i') },
         { numero_factura: new RegExp(busqueda, 'i') },
         { motivo: new RegExp(busqueda, 'i') }
-      ];
+      ].filter(Boolean);
     }
 
     // Filtro por rango de fechas
@@ -147,7 +146,7 @@ const obtenerTodasLasSalidas = async (req, res) => {
         // Normalizar la salida primero para asegurar que tenga todos los campos
         const salidaNormalizada = normalizarSalida(salida);
         
-        console.log(`🔄 Procesando salida ${index + 1}/${salidas.length}: ${salidaNormalizada.numero_salida}`);
+  console.log(`🔄 Procesando salida ${index + 1}/${salidas.length}: ${salidaNormalizada.identificador}`);
 
         // Información adicional según el tipo
         let informacionAdicional = {};
@@ -185,7 +184,7 @@ const obtenerTodasLasSalidas = async (req, res) => {
         
         const resultado = {
           _id: salidaNormalizada._id,
-          numero_salida: salidaNormalizada.numero_salida,
+          identificador: salidaNormalizada.identificador,
           nombre_perfume: salidaNormalizada.nombre_perfume,
           almacen_salida: salidaNormalizada.almacen_salida,
           tipo: salidaNormalizada.tipo,
@@ -327,7 +326,7 @@ const obtenerSalidaCompleta = async (req, res) => {
     if (mongoose.Types.ObjectId.isValid(identificador)) {
       query._id = identificador;
     } else {
-      query.numero_salida = identificador;
+  query._id = identificador;
     }
 
     console.log('🔍 Query de búsqueda:', query);
@@ -371,7 +370,7 @@ const obtenerSalidaCompleta = async (req, res) => {
 
     console.log('✅ Salida encontrada:', {
       id: salida._id,
-      numero: salida.numero_salida,
+  identificador: salida._id,
       tipo: salida.tipo,
       estatus: salida.estatus_auditoria
     });
@@ -500,7 +499,7 @@ const obtenerSalidaCompleta = async (req, res) => {
       data: {
         salida: {
           _id: salida._id,
-          numero_salida: salida.numero_salida,
+          identificador: salida._id,
           tipo: salida.tipo,
           cantidad: salida.cantidad,
           fecha_salida: salida.fecha_salida,
@@ -581,7 +580,6 @@ const marcarComoAuditada = async (req, res) => {
 
     // Buscar la salida
     const salida = await Salida.findById(salidaId)
-      .populate('id_perfume', 'name_per precio_venta_per')
       .populate('almacen_salida', 'codigo nombre_almacen');
 
     if (!salida) {
@@ -608,7 +606,17 @@ const marcarComoAuditada = async (req, res) => {
     salida.fecha_auditoria = new Date();
     salida.observaciones_auditor = observaciones_auditor;
 
+  // ...ya no se genera ni asigna numero_salida...
+
     await salida.save();
+
+    // Descontar la cantidad al perfume solo si la salida es de tipo Venta o Merma
+    if (salida.tipo === 'Venta' || salida.tipo === 'Merma') {
+      await Perfume.findOneAndUpdate(
+        { name_per: salida.nombre_perfume || salida.id_perfume?.name_per },
+        { $inc: { stock_per: -salida.cantidad } }
+      );
+    }
 
     // Obtener información completa del auditor
     const auditor = await User.findById(req.user._id);
